@@ -529,36 +529,61 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t rs1 = (instruction >> 15) & 0x1F;
             int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20;
             
-            uint32_t address = registers[rs1] + imm;
+            uint32_t val_rs1 = registers[rs1];
+            uint32_t address = val_rs1 + imm;
+            uint32_t res; 
+            const char* instr_name = "???";
 
             switch (funct3) {
-                case 0x0: {
+                case 0x0: { // lb
+                    instr_name = "lb";
                     int8_t byte = (int8_t)read_byte_from_memory(address);
-                    registers[rd] = (int32_t)byte;
+                    res = (int32_t)byte; 
+                    if(rd != 0) registers[rd] = res;
                     break;
                 }
-                case 0x1: {
+                case 0x1: { // lh
+                    instr_name = "lh";
                     int16_t half = (int16_t)read_half_word_from_memory(address);
-                    registers[rd] = (int32_t)half;
+                    res = (int32_t)half; 
+                    if(rd != 0) registers[rd] = res;
                     break;
                 }
-                case 0x2: {
-                    registers[rd] = read_word_from_memory(address);
+                case 0x2: { // lw
+                    instr_name = "lw";
+                    res = read_word_from_memory(address);
+                    if(rd != 0) registers[rd] = res;
                     break;
                 }
-                case 0x4: {
+                case 0x4: { // lbu
+                    instr_name = "lbu";
                     uint8_t byte = read_byte_from_memory(address);
-                    registers[rd] = (uint32_t)byte;
+                    res = (uint32_t)byte; 
+                    if(rd != 0) registers[rd] = res;
                     break;
                 }
-                case 0x5: {
+                case 0x5: { // lhu
+                    instr_name = "lhu";
                     uint16_t half = read_half_word_from_memory(address);
-                    registers[rd] = (uint32_t)half;
+                    res = (uint32_t)half
+                    if(rd != 0) registers[rd] = res;
                     break;
                 }
                 default:
+                    fprintf(output_file, "Erro: funct3 0x%x desconhecido para opcode LOAD (0x03)!\n", funct3);
                     printf("Erro: funct3 0x%x desconhecido para opcode LOAD (0x03)!\n", funct3);
+                    pc = 0; 
+                    return;
             }
+            fprintf(output_file, "0x%08x:%-7s %s,0x%x(%s)   %s=mem[0x%08x]=0x%08x\n",
+                   current_pc,
+                   instr_name,
+                   x_label[rd],
+                   (imm & 0xFFF),
+                   x_label[rs1],
+                   x_label[rd],
+                   address,
+                   res);
             break;
         }
         case 0x23: { 
@@ -571,27 +596,45 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             int32_t imm = (imm_11_5 << 5) | imm_4_0;
             imm = (int32_t)(imm << 20) >> 20;
 
-            uint32_t address = registers[rs1] + imm;
-            uint32_t value = registers[rs2];
+            uint32_t val_rs1 = registers[rs1];
+            uint32_t val_rs2 = registers[rs2];
+            uint32_t address = val_rs1 + imm;
+            const char* instr_name = "???";
 
             switch (funct3) {
-                case 0x0:
-                    write_byte_to_memory(address, (uint8_t)value);
+                case 0x0: { // sb
+                    instr_name = "sb";
+                    write_byte_to_memory(address, (uint8_t)val_rs2);
                     break;
-                case 0x1:
-                    write_half_word_to_memory(address, (uint16_t)value);
+                }
+                case 0x1: { // sh
+                    instr_name = "sh";
+                    write_half_word_to_memory(address, (uint16_t)val_rs2);
                     break;
-                case 0x2:
-                    write_word_to_memory(address, value);
+                }
+                case 0x2: { // sw
+                    instr_name = "sw";
+                    write_word_to_memory(address, val_rs2);
                     break;
+                }
                 default:
+                    fprintf(output_file, "Erro: funct3 0x%x desconhecido para opcode STORE (0x23)!\n", funct3);
                     printf("Erro: funct3 0x%x desconhecido para opcode STORE (0x23)!\n", funct3);
+                    pc = 0; 
+                    return; 
             }
+            fprintf(output_file, "0x%08x:%-7s %s,0x%x(%s)   mem[0x%08x]=0x%08x\n",
+                   current_pc,
+                   instr_name, // "sb", "sh", "sw"
+                   x_label[rs2],
+                   (imm & 0xFFF),
+                   x_label[rs1],
+                   address,
+                   val_rs2);
             break;
         }
-
         default:
-            printf("Erro: Opcode 0x%x desconhecido! (em 0x%x)\n", opcode, pc);
+            printf("Erro Opcode 0x%x desconhecido em 0x%x\n", opcode, pc);
             pc = 0;
             break;
     }
