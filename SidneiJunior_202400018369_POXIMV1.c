@@ -210,42 +210,94 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             int32_t v_rs2 = registers[rs2];
             uint32_t v_urs1 = registers[rs1];
             uint32_t v_urs2 = registers[rs2];
+            uint32_t shamt = v_urs2 & 0x1F; 
+            uint32_t res; 
 
             if (funct7 == 0x00) {
                 switch (funct3) {
-                    case 0x0:
-                        registers[rd] = v_rs1 + v_rs2;
+                    case 0x0: { // add
+                        res = v_rs1 + v_rs2;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:add    %s,%s,%s   %s=0x%08x+0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x1:
-                        registers[rd] = v_urs1 << (v_urs2 & 0x1F);
+                    }
+                    case 0x1: { // sll
+                        res = v_urs1 << shamt;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:sll    %s,%s,%s   %s=0x%08x<<%u=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_urs1, shamt, res);
                         break;
-                    case 0x2:
-                        registers[rd] = (v_rs1 < v_rs2) ? 1 : 0;
+                    }
+                    case 0x2: { // slt
+                        res = (v_rs1 < v_rs2) ? 1 : 0;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:slt    %s,%s,%s   %s=(0x%08x<0x%08x)=%u\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x3:
-                        registers[rd] = (v_urs1 < v_urs2) ? 1 : 0;
+                    }
+                    case 0x3: { // sltu
+                        res = (v_urs1 < v_urs2) ? 1 : 0;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:sltu   %s,%s,%s   %s=(0x%08x<0x%08x)=%u\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_urs1, v_urs2, res);
                         break;
-                    case 0x4:
-                        registers[rd] = v_rs1 ^ v_rs2;
+                    }
+                    case 0x4: { // xor
+                        res = v_rs1 ^ v_rs2;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:xor    %s,%s,%s   %s=0x%08x^0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x5:
-                        registers[rd] = v_urs1 >> (v_urs2 & 0x1F);
+                    }
+                    case 0x5: { // srl
+                        res = v_urs1 >> shamt;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:srl    %s,%s,%s   %s=0x%08x>>%u=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_urs1, shamt, res);
                         break;
-                    case 0x6:
-                        registers[rd] = v_rs1 | v_rs2;
+                    }
+                    case 0x6: { // or
+                        res = v_rs1 | v_rs2;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:or     %s,%s,%s   %s=0x%08x|0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x7:
-                        registers[rd] = v_rs1 & v_rs2;
+                    }
+                    case 0x7: { // and
+                        res = v_rs1 & v_rs2;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:and    %s,%s,%s   %s=0x%08x&0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
+                    }
                 }
             } else if (funct7 == 0x20) {
                 switch (funct3) {
-                    case 0x0:
-                        registers[rd] = v_rs1 - v_rs2;
+                    case 0x0: { // sub
+                        res = v_rs1 - v_rs2;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:sub    %s,%s,%s   %s=0x%08x-0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x5:
-                        registers[rd] = v_rs1 >> (v_urs2 & 0x1F);
+                    }
+                    case 0x5: { // sra
+                        res = v_rs1 >> shamt;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:sra    %s,%s,%s   %s=0x%08x>>>%u=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, shamt, res);
                         break;
+                    }
                 }
             } else if (funct7 == 0x01) {
                 int64_t s64_rs1 = (int64_t)v_rs1;
@@ -254,36 +306,80 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 uint64_t u64_rs2 = (uint64_t)v_urs2;
 
                 switch (funct3) {
-                    case 0x0:
-                        registers[rd] = v_rs1 * v_rs2;
+                    case 0x0: { // mul
+                        res = v_rs1 * v_rs2;
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:mul    %s,%s,%s   %s=0x%08x*0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x1:
-                        registers[rd] = (uint32_t)((s64_rs1 * s64_rs2) >> 32);
+                    }
+                    case 0x1: { // mulh
+                        res = (uint32_t)((s64_rs1 * s64_rs2) >> 32);
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:mulh   %s,%s,%s   %s=0x%08x*0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x2:
-                        registers[rd] = (uint32_t)((s64_rs1 * u64_rs2) >> 32);
+                    }
+                    case 0x2: { // mulhsu
+                        res = (uint32_t)((s64_rs1 * u64_rs2) >> 32);
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:mulhsu %s,%s,%s   %s=0x%08x*0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_urs2, res);
                         break;
-                    case 0x3:
-                        registers[rd] = (uint32_t)((u64_rs1 * u64_rs2) >> 32);
+                    }
+                    case 0x3: { // mulhu
+                        res = (uint32_t)((u64_rs1 * u64_rs2) >> 32);
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:mulhu  %s,%s,%s   %s=0x%08x*0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_urs1, v_urs2, res);
                         break;
-                    case 0x4:
-                        if (v_rs2 == 0) registers[rd] = 0xFFFFFFFF;
-                        else if (v_rs1 == 0x80000000 && v_rs2 == -1) registers[rd] = 0x80000000;
-                        else registers[rd] = v_rs1 / v_rs2;
+                    }
+                    case 0x4: { // div
+                        if (v_rs2 == 0) res = 0xFFFFFFFF; 
+                        else if (v_rs1 == 0x80000000 && v_rs2 == -1) res = 0x80000000; // Overflow
+                        else res = v_rs1 / v_rs2;
+                        
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:div    %s,%s,%s   %s=0x%08x/0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x5:
-                        if (v_urs2 == 0) registers[rd] = 0xFFFFFFFF;
-                        else registers[rd] = v_urs1 / v_urs2;
+                    }
+                    case 0x5: { // divu
+                        if (v_urs2 == 0) res = 0xFFFFFFFF;
+                        else res = v_urs1 / v_urs2;
+                        
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:divu   %s,%s,%s   %s=0x%08x/0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_urs1, v_urs2, res);
                         break;
-                    case 0x6:
-                        if (v_rs2 == 0) registers[rd] = v_rs1;
-                        else if (v_rs1 == 0x80000000 && v_rs2 == -1) registers[rd] = 0;
-                        else registers[rd] = v_rs1 % v_rs2;
+                    }
+                    case 0x6: { // rem
+                        if (v_rs2 == 0) res = v_rs1; 
+                        else if (v_rs1 == 0x80000000 && v_rs2 == -1) res = 0; // Overflow
+                        else res = v_rs1 % v_rs2;
+                        
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:rem    %s,%s,%s   %s=0x%08x%%0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_rs1, v_rs2, res);
                         break;
-                    case 0x7:
-                        if (v_urs2 == 0) registers[rd] = v_urs1;
-                        else registers[rd] = v_urs1 % v_urs2;
+                    }
+                    case 0x7: { // remu
+                        if (v_urs2 == 0) res = v_urs1; 
+                        else res = v_urs1 % v_urs2;
+                        
+                        if(rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:remu   %s,%s,%s   %s=0x%08x%%0x%08x=0x%08x\n",
+                               current_pc, x_label[rd], x_label[rs1], x_label[rs2],
+                               x_label[rd], v_urs1, v_urs2, res);
                         break;
+                    }
                 }
             }
             break;
