@@ -384,7 +384,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             }
             break;
         }
-        case 0x6F: {
+        case 0x6F: { // jal
             uint32_t rd = (instruction >> 7) & 0x1F;
             
             uint32_t imm_20 = (instruction >> 31) & 1;
@@ -393,13 +393,24 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t imm_19_12 = (instruction >> 12) & 0xFF;
             
             int32_t offset = (imm_20 << 20) | (imm_19_12 << 12) | (imm_11 << 11) | (imm_10_1 << 1);
-            offset = (int32_t)(offset << 11) >> 11; 
+            offset = (int32_t)(offset << 11) >> 11;
+
+            uint32_t return_address = current_pc + 4;
+            uint32_t target_address = current_pc + offset; 
 
             if (rd != 0) {
-                registers[rd] = pc + 4;
+                registers[rd] = return_address;
             }
-            pc = pc + offset;
-            pc_updated = 1;
+            pc = target_address;
+            pc_updated = 1;  
+            
+            fprintf(output_file, "0x%08x:jal    %s,0x%05x        pc=0x%08x,%s=0x%08x\n",
+                   current_pc,
+                   x_label[rd],
+                   (offset >> 1) & 0xFFFFF, 
+                   target_address,
+                   x_label[rd],
+                   return_address);
             break;
         }
         case 0x63: {
@@ -414,30 +425,47 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             int32_t offset = (imm_12 << 12) | (imm_11 << 11) | (imm_10_5 << 5) | (imm_4_1 << 1);
             offset = (int32_t)(offset << 19) >> 19;
 
-            int condition_met = 0;
-            switch (funct3) {
-                case 0x0:
-                    if (registers[rs1] == registers[rs2]) condition_met = 1;
-                    break;
-                case 0x1:
-                    if (registers[rs1] != registers[rs2]) condition_met = 1;
-                    break;
-                case 0x4:
-                    if ((int32_t)registers[rs1] < (int32_t)registers[rs2]) condition_met = 1;
-                    break;
-                case 0x5:
-                    if ((int32_t)registers[rs1] >= (int32_t)registers[rs2]) condition_met = 1;
-                    break;
-                case 0x6:
-                    if ((uint32_t)registers[rs1] < (uint32_t)registers[rs2]) condition_met = 1;
-                    break;
-                case 0x7:
-                    if ((uint32_t)registers[rs1] >= (uint32_t)registers[rs2]) condition_met = 1;
-                    break;
-            }
+            int32_t val_rs1 = registers[rs1];
+            int32_t val_rs2 = registers[rs2];
+            uint32_t u_val_rs1 = registers[rs1];
+            uint32_t u_val_rs2 = registers[rs2];
 
+            int condition_met = 0;
+            const char* instr_name = "???";
+            const char* op_symbol = "??";
+            int is_unsigned = 0;
+
+            switch (funct3) {
+                case 0x0: instr_name = "beq"; op_symbol = "=="; if (val_rs1 == val_rs2) condition_met = 1; break;
+                case 0x1: instr_name = "bne"; op_symbol = "!="; if (val_rs1 != val_rs2) condition_met = 1; break;
+                case 0x4: instr_name = "blt"; op_symbol = "<";  if (val_rs1 < val_rs2) condition_met = 1; break;
+                case 0x5: instr_name = "bge"; op_symbol = ">="; if (val_rs1 >= val_rs2) condition_met = 1; break;
+                case 0x6: instr_name = "bltu"; op_symbol = "<";  if (u_val_rs1 < u_val_rs2) condition_met = 1; is_unsigned = 1; break;
+                case 0x7: instr_name = "bgeu"; op_symbol = ">="; if (u_val_rs1 >= u_val_rs2) condition_met = 1; is_unsigned = 1; break;
+            }
+            if (is_unsigned) {
+                fprintf(output_file, "0x%08x:%-7s %s,%s,0x%x         (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
+                       current_pc,
+                       instr_name,
+                       x_label[rs1], x_label[rs2],
+                       (offset >> 1) & 0xFFF, 
+                       u_val_rs1, op_symbol, u_val_rs2, 
+                       condition_met,
+                       (condition_met ? (current_pc + offset) : (current_pc + 4))
+                       );
+            } else {
+                fprintf(output_file, "0x%08x:%-7s %s,%s,0x%x         (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
+                       current_pc,
+                       instr_name,
+                       x_label[rs1], x_label[rs2],
+                       (offset >> 1) & 0xFFF, 
+                       val_rs1, op_symbol, val_rs2,
+                       condition_met,
+                       (condition_met ? (current_pc + offset) : (current_pc + 4))
+                       );
+            }
             if (condition_met) {
-                pc = pc + offset;
+                pc = current_pc + offset;
                 pc_updated = 1;
             }
             break;
