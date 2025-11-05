@@ -470,31 +470,57 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             }
             break;
         }
-        case 0x37: {
+        case 0x37: { // lui
             uint32_t rd = (instruction >> 7) & 0x1F;
-            uint32_t imm = instruction & 0xFFFFF000; 
-            registers[rd] = imm;
+            uint32_t imm_u = instruction & 0xFFFFF000; 
+            
+            if (rd != 0) registers[rd] = imm_u;
+
+            fprintf(output_file, "0x%08x:lui    %s,0x%05x       %s=0x%08x\n",
+                   current_pc,
+                   x_label[rd],
+                   (imm_u >> 12), 
+                   x_label[rd],
+                   imm_u); 
             break;
         }
-        case 0x17: {
+        case 0x17: { // auipc
             uint32_t rd = (instruction >> 7) & 0x1F;
-            int32_t imm = (int32_t)(instruction & 0xFFFFF000);
-            registers[rd] = pc + imm;
+            int32_t imm_u = (int32_t)(instruction & 0xFFFFF000); 
+            
+            uint32_t res = current_pc + imm_u;
+
+            if (rd != 0) registers[rd] = res;
+            fprintf(output_file, "0x%08x:auipc  %s,0x%05x       %s=0x%08x+0x%08x=0x%08x\n",
+                   current_pc,
+                   x_label[rd],
+                   (imm_u >> 12) & 0xFFFFF,
+                   x_label[rd],
+                   current_pc,
+                   imm_u,
+                   res);
             break;
         }
-        case 0x67: {
+        case 0x67: { // jalr
             uint32_t rd = (instruction >> 7) & 0x1F;
             uint32_t rs1 = (instruction >> 15) & 0x1F;
-            int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20;
+            int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20; 
 
-            uint32_t return_address = pc + 4;
-            uint32_t target_address = (registers[rs1] + imm) & ~1; 
+            uint32_t val_rs1 = registers[rs1];
+            uint32_t return_address = current_pc + 4;
+            uint32_t target_address = (val_rs1 + imm) & ~1;
 
             if (rd != 0) {
                 registers[rd] = return_address;
             }
-            pc = target_address;
+            pc = target_address; 
             pc_updated = 1;
+            
+            fprintf(output_file, "0x%08x:jalr   %s,%s,0x%x       pc=0x%08x+0x%08x,%s=0x%08x\n",
+                   current_pc,
+                   x_label[rd], x_label[rs1], (imm & 0xFFF),
+                   val_rs1, imm,
+                   x_label[rd], return_address);
             break;
         }
         case 0x03: { 
