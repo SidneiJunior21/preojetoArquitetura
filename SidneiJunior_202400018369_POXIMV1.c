@@ -565,7 +565,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 case 0x5: { // lhu
                     instr_name = "lhu";
                     uint16_t half = read_half_word_from_memory(address);
-                    res = (uint32_t)half
+                    res = (uint32_t)half;
                     if(rd != 0) registers[rd] = res;
                     break;
                 }
