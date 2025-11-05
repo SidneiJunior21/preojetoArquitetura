@@ -9,6 +9,8 @@ uint32_t pc = 0x80000000;
 #define MEM_SIZE (1024 * 1024)
 uint8_t memory[MEM_SIZE];
 
+const char* x_label[32] = { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6" };
+
 uint32_t read_word_from_memory(uint32_t address) {
     
     uint32_t index = address - 0x80000000;
@@ -80,7 +82,7 @@ void write_half_word_to_memory(uint32_t address, uint16_t value) {
 
 
 
-void execute_instruction(uint32_t instruction) {
+void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_file) {
     
     uint32_t opcode = instruction & 0x7F;
 
@@ -401,9 +403,9 @@ void print_registers() {
 
 int main(int argc, char *argv[]) {
 
-    if (argc < 2) {
-        fprintf(stderr, "Erro: Forneça o nome do arquivo .hex para carregar.\n");
-        fprintf(stderr, "Uso: %s <arquivo.hex>\n", argv[0]);
+    if (argc < 3) {
+        fprintf(stderr, "Erro: Forneça os arquivos de entrada e saída.\n");
+        fprintf(stderr, "Uso: %s <arquivo.hex> <arquivo.out>\n", argv[0]);
         return 1;
     }
 
@@ -412,13 +414,18 @@ int main(int argc, char *argv[]) {
         perror("Erro ao abrir o arquivo .hex");
         return 1;
     }
+    FILE *file = fopen(argv[2], "w");
+    if (file == NULL) {
+        perror("Erro ao criar o arquivo .out");
+        return 1;
+    }
 
     char line[1024];
     uint32_t current_address = 0;
     int address_set = 0;
     int line_count = 0;
 
-    while (fgets(line, sizeof(line), file)) {
+    while (fgets(line, sizeof(line), hex_file)) {
         line_count++;
         line[strcspn(line, "\r\n")] = 0;
 
@@ -458,33 +465,32 @@ int main(int argc, char *argv[]) {
             }
         }
     }
-    fclose(file);
-    printf("Programa '%s' carregado na memória. Iniciando simulação em 0x%x\n", argv[1], pc);
+    fclose(hex_file);
+    printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
 
     while (1) {
         
         uint32_t instruction = read_word_from_memory(pc);
 
         if (instruction == 0x00000073) {
+            fprintf(output_file, "0x%08x:ecall\n", pc_atual);
             printf("Simulação terminada (ecall).\n");
-            print_registers();
             break;
         }
         if (instruction == 0x00100073) {
+            fprintf(output_file, "0x%08x:ebreak\n", pc_atual);
             printf("Simulação terminada (ebreak).\n");
-            print_registers();
             break;
         }
         if (instruction == 0) {
-            printf("Simulação terminada (instrução nula). PC=0x%x\n", pc);
-            print_registers();
+            printf("Simulação terminada (instrução nula). PC=0x%x\n", pc_atual);
             break;
         }
         
-        execute_instruction(instruction);
+        execute_instruction(instruction, pc_atual, output_file);
 
         registers[0] = 0;
     }
-
+    fclose(output_file)
     return 0;
 }
