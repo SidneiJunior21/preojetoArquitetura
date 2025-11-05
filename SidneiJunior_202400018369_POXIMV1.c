@@ -644,37 +644,23 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
     }
 }
 
-void print_registers() {
-    printf("\n--- Estado Final dos Registradores ---\n");
-    for (int i = 0; i < 32; i++) {
-        printf("x%d:\t0x%08x\t(%d)\n", i, registers[i], registers[i]);
-
-        if ((i + 1) % 4 == 0) {
-            printf("\n");
-        }
-    }
-    printf("----------------------------------------\n");
-}
-
 int main(int argc, char *argv[]) {
-
     if (argc < 3) {
         fprintf(stderr, "Erro: Forneça os arquivos de entrada e saída.\n");
         fprintf(stderr, "Uso: %s <arquivo.hex> <arquivo.out>\n", argv[0]);
         return 1;
     }
-
-    FILE *file = fopen(argv[1], "r");
-    if (file == NULL) {
+    FILE *hex_file = fopen(argv[1], "r"); 
+    if (hex_file == NULL) {
         perror("Erro ao abrir o arquivo .hex");
         return 1;
     }
-    FILE *file = fopen(argv[2], "w");
-    if (file == NULL) {
+    FILE *output_file = fopen(argv[2], "w");
+    if (output_file == NULL) {
         perror("Erro ao criar o arquivo .out");
+        fclose(hex_file); 
         return 1;
     }
-
     char line[1024];
     uint32_t current_address = 0;
     int address_set = 0;
@@ -689,9 +675,7 @@ int main(int argc, char *argv[]) {
             address_set = 1;
         } 
         else if (address_set && strlen(line) > 0) {
-            
             char *token = strtok(line, " ");
-            
             while (token != NULL) {
                 char *byte_str_0 = token;
                 char *byte_str_1 = strtok(NULL, " ");
@@ -704,28 +688,24 @@ int main(int argc, char *argv[]) {
                     }
                     break;
                 }
-
                 uint32_t byte0 = (uint32_t)strtoul(byte_str_0, NULL, 16);
                 uint32_t byte1 = (uint32_t)strtoul(byte_str_1, NULL, 16);
                 uint32_t byte2 = (uint32_t)strtoul(byte_str_2, NULL, 16);
                 uint32_t byte3 = (uint32_t)strtoul(byte_str_3, NULL, 16);
-
                 uint32_t instruction_word = byte0 | (byte1 << 8) | (byte2 << 16) | (byte3 << 24);
-
                 write_word_to_memory(current_address, instruction_word);
-                
                 current_address += 4;
-
                 token = strtok(NULL, " ");
             }
         }
     }
     fclose(hex_file);
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
-
+    
     while (1) {
         
         uint32_t instruction = read_word_from_memory(pc);
+        uint32_t pc_atual = pc;
 
         if (instruction == 0x00000073) {
             fprintf(output_file, "0x%08x:ecall\n", pc_atual);
@@ -741,11 +721,11 @@ int main(int argc, char *argv[]) {
             printf("Simulação terminada (instrução nula). PC=0x%x\n", pc_atual);
             break;
         }
-        
         execute_instruction(instruction, pc_atual, output_file);
 
         registers[0] = 0;
     }
-    fclose(output_file)
+
+    fclose(output_file);
     return 0;
 }
