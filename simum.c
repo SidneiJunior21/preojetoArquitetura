@@ -93,47 +93,109 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t rd    = (instruction >> 7) & 0x1F;
             uint32_t funct3 = (instruction >> 12) & 0x7;
             uint32_t rs1   = (instruction >> 15) & 0x1F;
-            
             int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20;
 
+            uint32_t val_rs1 = registers[rs1];
+            uint32_t res;
+
             switch (funct3) {
-                case 0x0:
-                    registers[rd] = registers[rs1] + imm;
-                    break;
-                
-                case 0x1: {
-                    uint32_t shamt = imm & 0x1F; 
-                    registers[rd] = registers[rs1] << shamt;
+                case 0x0: { // addi
+                    res = val_rs1 + imm;
+                    if (rd != 0) registers[rd] = res;
+                    fprintf(output_file, "0x%08x:addi   %s,%s,0x%x   %s=0x%08x+0x%08x=0x%08x\n", 
+                           current_pc, 
+                           x_label[rd], x_label[rs1], (imm & 0xFFF),
+                           x_label[rd], val_rs1, imm, res);
                     break;
                 }
-                case 0x2:
-                    registers[rd] = ((int32_t)registers[rs1] < imm) ? 1 : 0;
+                
+                case 0x1: { // slli
+                    uint32_t shamt = imm & 0x1F;
+                    res = val_rs1 << shamt;
+                    if (rd != 0) registers[rd] = res;
+                    fprintf(output_file, "0x%08x:slli   %s,%s,%u   %s=0x%08x<<%u=0x%08x\n",
+                           current_pc,
+                           x_label[rd], x_label[rs1], shamt,
+                           x_label[rd], val_rs1, shamt, res);
                     break;
-                case 0x3:
-                    registers[rd] = ((uint32_t)registers[rs1] < (uint32_t)imm) ? 1 : 0;
+                }
+                
+                case 0x2: { // slti
+                    res = ((int32_t)val_rs1 < imm) ? 1 : 0;
+                    if (rd != 0) registers[rd] = res;
+                    fprintf(output_file, "0x%08x:slti   %s,%s,0x%x   %s=(0x%08x<0x%08x)=%u\n",
+                           current_pc,
+                           x_label[rd], x_label[rs1], (imm & 0xFFF),
+                           x_label[rd], val_rs1, imm, res);
                     break;
-                case 0x4:
-                    registers[rd] = registers[rs1] ^ imm;
+                }
+
+                case 0x3: { // sltiu
+                    res = (val_rs1 < (uint32_t)imm) ? 1 : 0;
+                    if (rd != 0) registers[rd] = res;
+                    fprintf(output_file, "0x%08x:sltiu  %s,%s,0x%x   %s=(0x%08x<0x%08x)=%u\n",
+                           current_pc,
+                           x_label[rd], x_label[rs1], (imm & 0xFFF),
+                           x_label[rd], val_rs1, imm, res);
                     break;
-                case 0x5: {
+                }
+
+                case 0x4: { // xori
+                    res = val_rs1 ^ imm;
+                    if (rd != 0) registers[rd] = res;
+                    fprintf(output_file, "0x%08x:xori   %s,%s,0x%x   %s=0x%08x^0x%08x=0x%08x\n",
+                           current_pc,
+                           x_label[rd], x_label[rs1], (imm & 0xFFF),
+                           x_label[rd], val_rs1, imm, res);
+                    break;
+                }
+                
+                case 0x5: { // srli e srai
                     uint32_t shamt = imm & 0x1F;
                     uint32_t funct7 = (instruction >> 25) & 0x7F;
                     
-                    if (funct7 == 0x00) {
-                        registers[rd] = (uint32_t)registers[rs1] >> shamt;
-                    } else if (funct7 == 0x20) {
-                        registers[rd] = (int32_t)registers[rs1] >> shamt;
+                    if (funct7 == 0x00) { // srli
+                        res = (uint32_t)val_rs1 >> shamt;
+                        if (rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:srli   %s,%s,%u   %s=0x%08x>>%u=0x%08x\n",
+                               current_pc,
+                               x_label[rd], x_label[rs1], shamt,
+                               x_label[rd], val_rs1, shamt, res);
+                    } else if (funct7 == 0x20) { // srai
+                        res = (int32_t)val_rs1 >> shamt; 
+                        if (rd != 0) registers[rd] = res;
+                        fprintf(output_file, "0x%08x:srai   %s,%s,%u   %s=0x%08x>>>%u=0x%08x\n",
+                               current_pc,
+                               x_label[rd], x_label[rs1], shamt,
+                               x_label[rd], val_rs1, shamt, res);
                     }
                     break;
                 }
-                case 0x6:
-                    registers[rd] = registers[rs1] | imm;
+
+                case 0x6: { // ori
+                    res = val_rs1 | imm;
+                    if (rd != 0) registers[rd] = res;
+                    fprintf(output_file, "0x%08x:ori    %s,%s,0x%x   %s=0x%08x|0x%08x=0x%08x\n",
+                           current_pc,
+                           x_label[rd], x_label[rs1], (imm & 0xFFF),
+                           x_label[rd], val_rs1, imm, res);
                     break;
-                case 0x7:
-                    registers[rd] = registers[rs1] & imm;
+                }
+
+                case 0x7: { // andi
+                    res = val_rs1 & imm;
+                    if (rd != 0) registers[rd] = res;
+                    fprintf(output_file, "0x%08x:andi   %s,%s,0x%x   %s=0x%08x&0x%08x=0x%08x\n",
+                           current_pc,
+                           x_label[rd], x_label[rs1], (imm & 0xFFF),
+                           x_label[rd], val_rs1, imm, res);
                     break;
+                }
+
                 default:
+                    fprintf(output_file, "Erro: funct3 0x%x desconhecido para opcode I-TYPE (0x13)!\n", funct3);
                     printf("Erro: funct3 0x%x desconhecido para opcode I-TYPE (0x13)!\n", funct3);
+                    pc = 0;
             }
             break;
         }
