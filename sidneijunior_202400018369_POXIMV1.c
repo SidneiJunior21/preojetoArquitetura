@@ -407,16 +407,16 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 case 0x7: instr_name = "bgeu"; op_symbol = ">="; if (u_val_rs1 >= u_val_rs2) condition_met = 1; is_unsigned = 1; break;
             }
             
-            sprintf(operand_str, "%s,%s,0x%03x", x_label[rs1], x_label[rs2], (offset >> 1) & 0xFFF);
-            
             if (is_unsigned) {
-                fprintf(output_file, "0x%08x:%-7s %-20s (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
-                       current_pc, instr_name, operand_str,
+                fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
+                       current_pc, instr_name, 
+                       x_label[rs1], x_label[rs2], (offset >> 1) & 0xFFF,
                        u_val_rs1, op_symbol, u_val_rs2, 
                        condition_met, (condition_met ? (current_pc + offset) : (current_pc + 4)));
             } else {
-                fprintf(output_file, "0x%08x:%-7s %-20s (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
-                       current_pc, instr_name, operand_str,
+                fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
+                       current_pc, instr_name,
+                       x_label[rs1], x_label[rs2], (offset >> 1) & 0xFFF, 
                        val_rs1, op_symbol, val_rs2,
                        condition_met, (condition_met ? (current_pc + offset) : (current_pc + 4)));
             }
