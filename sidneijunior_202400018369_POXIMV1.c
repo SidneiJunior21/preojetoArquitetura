@@ -85,8 +85,9 @@ void write_half_word_to_memory(uint32_t address, uint16_t value) {
 void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_file) {
     
     uint32_t opcode = instruction & 0x7F;
-
     int pc_updated = 0;
+    
+    char operand_str[40]; 
 
     switch (opcode) {
         case 0x13: {
@@ -97,101 +98,82 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
 
             uint32_t val_rs1 = registers[rs1];
             uint32_t res;
+            uint32_t shamt = imm & 0x1F; 
 
             switch (funct3) {
                 case 0x0: { // addi
                     res = val_rs1 + imm;
                     if (rd != 0) registers[rd] = res;
-                    fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         %s=0x%08x+0x%08x=0x%08x\n",
-                           current_pc, "addi", 
-                           x_label[rd], x_label[rs1], (imm & 0xFFF),
-                           x_label[rd], val_rs1, imm, res);
+                    sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF));
+                    fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x+0x%08x=0x%08x\n", 
+                           current_pc, "addi", operand_str, x_label[rd], val_rs1, imm, res);
                     break;
                 }
-                
                 case 0x1: { // slli
-                    uint32_t shamt = imm & 0x1F;
                     res = val_rs1 << shamt;
                     if (rd != 0) registers[rd] = res;
-                    fprintf(output_file, "0x%08x:%-7s %s,%s,%u            %s=0x%08x<<%u=0x%08x\n",
-                           current_pc, "slli",
-                           x_label[rd], x_label[rs1], shamt,
-                           x_label[rd], val_rs1, shamt, res);
+                    sprintf(operand_str, "%s,%s,%u", x_label[rd], x_label[rs1], shamt);
+                    fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x<<%u=0x%08x\n",
+                           current_pc, "slli", operand_str, x_label[rd], val_rs1, shamt, res);
                     break;
                 }
-                
                 case 0x2: { // slti
                     res = ((int32_t)val_rs1 < imm) ? 1 : 0;
                     if (rd != 0) registers[rd] = res;
-                    fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         %s=(0x%08x<0x%08x)=%u\n",
-                           current_pc, "slti",
-                           x_label[rd], x_label[rs1], (imm & 0xFFF),
-                           x_label[rd], val_rs1, imm, res);
+                    sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF));
+                    fprintf(output_file, "0x%08x:%-7s %-20s %s=(0x%08x<0x%08x)=%u\n",
+                           current_pc, "slti", operand_str, x_label[rd], val_rs1, imm, res);
                     break;
                 }
-
                 case 0x3: { // sltiu
                     res = (val_rs1 < (uint32_t)imm) ? 1 : 0;
                     if (rd != 0) registers[rd] = res;
-                    fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x       %s=(0x%08x<0x%08x)=%u\n", 
-                           current_pc, "sltiu",
-                           x_label[rd], x_label[rs1], (imm & 0xFFF),
-                           x_label[rd], val_rs1, imm, res);
+                    sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF));
+                    fprintf(output_file, "0x%08x:%-7s %-20s %s=(0x%08x<0x%08x)=%u\n",
+                           current_pc, "sltiu", operand_str, x_label[rd], val_rs1, imm, res);
                     break;
                 }
-
                 case 0x4: { // xori
                     res = val_rs1 ^ imm;
                     if (rd != 0) registers[rd] = res;
-                    fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         %s=0x%08x^0x%08x=0x%08x\n",
-                           current_pc, "xori",
-                           x_label[rd], x_label[rs1], (imm & 0xFFF),
-                           x_label[rd], val_rs1, imm, res);
+                    sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF));
+                    fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x^0x%08x=0x%08x\n",
+                           current_pc, "xori", operand_str, x_label[rd], val_rs1, imm, res);
                     break;
                 }
-                
                 case 0x5: { // srli e srai
-                    uint32_t shamt = imm & 0x1F;
                     uint32_t funct7 = (instruction >> 25) & 0x7F;
-                    
                     if (funct7 == 0x00) { // srli
                         res = (uint32_t)val_rs1 >> shamt;
                         if (rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%u            %s=0x%08x>>%u=0x%08x\n",
-                               current_pc, "srli",
-                               x_label[rd], x_label[rs1], shamt,
-                               x_label[rd], val_rs1, shamt, res);
+                        sprintf(operand_str, "%s,%s,%u", x_label[rd], x_label[rs1], shamt);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x>>%u=0x%08x\n",
+                               current_pc, "srli", operand_str, x_label[rd], val_rs1, shamt, res);
                     } else if (funct7 == 0x20) { // srai
                         res = (int32_t)val_rs1 >> shamt; 
                         if (rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%u            %s=0x%08x>>>%u=0x%08x\n",
-                               current_pc, "srai",
-                               x_label[rd], x_label[rs1], shamt,
-                               x_label[rd], val_rs1, shamt, res);
+                        sprintf(operand_str, "%s,%s,%u", x_label[rd], x_label[rs1], shamt);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x>>>%u=0x%08x\n",
+                               current_pc, "srai", operand_str, x_label[rd], val_rs1, shamt, res);
                     }
                     break;
                 }
-
                 case 0x6: { // ori
                     res = val_rs1 | imm;
                     if (rd != 0) registers[rd] = res;
-                    fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         %s=0x%08x|0x%08x=0x%08x\n",
-                           current_pc, "ori",
-                           x_label[rd], x_label[rs1], (imm & 0xFFF),
-                           x_label[rd], val_rs1, imm, res);
+                    sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF));
+                    fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x|0x%08x=0x%08x\n",
+                           current_pc, "ori", operand_str, x_label[rd], val_rs1, imm, res);
                     break;
                 }
-
                 case 0x7: { // andi
                     res = val_rs1 & imm;
                     if (rd != 0) registers[rd] = res;
-                    fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         %s=0x%08x&0x%08x=0x%08x\n",
-                           current_pc, "andi",
-                           x_label[rd], x_label[rs1], (imm & 0xFFF),
-                           x_label[rd], val_rs1, imm, res);
+                    sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF));
+                    fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x&0x%08x=0x%08x\n",
+                           current_pc, "andi", operand_str, x_label[rd], val_rs1, imm, res);
                     break;
                 }
-
                 default:
                     fprintf(output_file, "Erro: funct3 0x%x desconhecido para opcode I-TYPE (0x13)!\n", funct3);
                     printf("Erro: funct3 0x%x desconhecido para opcode I-TYPE (0x13)!\n", funct3);
@@ -212,71 +194,65 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t v_urs2 = registers[rs2];
             uint32_t shamt = v_urs2 & 0x1F; 
             uint32_t res; 
+            
+            sprintf(operand_str, "%s,%s,%s", x_label[rd], x_label[rs1], x_label[rs2]);
 
             if (funct7 == 0x00) {
                 switch (funct3) {
                     case 0x0: { // add
                         res = v_rs1 + v_rs2;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x+0x%08x=0x%08x\n", 
-                               current_pc, "add", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x+0x%08x=0x%08x\n", 
+                               current_pc, "add", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x1: { // sll
                         res = v_urs1 << shamt;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x<<%u=0x%08x\n", 
-                               current_pc, "sll", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_urs1, shamt, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x<<%u=0x%08x\n", 
+                               current_pc, "sll", operand_str, x_label[rd], v_urs1, shamt, res);
                         break;
                     }
                     case 0x2: { // slt
                         res = (v_rs1 < v_rs2) ? 1 : 0;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=(0x%08x<0x%08x)=%u\n", 
-                               current_pc, "slt", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=(0x%08x<0x%08x)=%u\n", 
+                               current_pc, "slt", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x3: { // sltu
                         res = (v_urs1 < v_urs2) ? 1 : 0;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s         %s=(0x%08x<0x%08x)=%u\n",
-                               current_pc, "sltu", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_urs1, v_urs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=(0x%08x<0x%08x)=%u\n",
+                               current_pc, "sltu", operand_str, x_label[rd], v_urs1, v_urs2, res);
                         break;
                     }
                     case 0x4: { // xor
                         res = v_rs1 ^ v_rs2;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x^0x%08x=0x%08x\n", 
-                               current_pc, "xor", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x^0x%08x=0x%08x\n", 
+                               current_pc, "xor", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x5: { // srl
                         res = v_urs1 >> shamt;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x>>%u=0x%08x\n", 
-                               current_pc, "srl", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_urs1, shamt, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x>>%u=0x%08x\n", 
+                               current_pc, "srl", operand_str, x_label[rd], v_urs1, shamt, res);
                         break;
                     }
                     case 0x6: { // or
                         res = v_rs1 | v_rs2;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x|0x%08x=0x%08x\n", 
-                               current_pc, "or", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x|0x%08x=0x%08x\n", 
+                               current_pc, "or", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x7: { // and
                         res = v_rs1 & v_rs2;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x&0x%08x=0x%08x\n", 
-                               current_pc, "and", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x&0x%08x=0x%08x\n", 
+                               current_pc, "and", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                 }
@@ -285,22 +261,19 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                     case 0x0: { // sub
                         res = v_rs1 - v_rs2;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x-0x%08x=0x%08x\n", 
-                               current_pc, "sub", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x-0x%08x=0x%08x\n", 
+                               current_pc, "sub", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x5: { // sra
                         res = v_rs1 >> shamt;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x>>>%u=0x%08x\n", 
-                               current_pc, "sra", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, shamt, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x>>>%u=0x%08x\n", 
+                               current_pc, "sra", operand_str, x_label[rd], v_rs1, shamt, res);
                         break;
                     }
                 }
             } else if (funct7 == 0x01) {
-                
                 int64_t s64_rs1 = (int64_t)v_rs1;
                 int64_t s64_rs2 = (int64_t)v_rs2;
                 uint64_t u64_rs1 = (uint64_t)v_urs1;
@@ -310,33 +283,29 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                     case 0x0: { // mul
                         res = v_rs1 * v_rs2;
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x*0x%08x=0x%08x\n", 
-                               current_pc, "mul", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x*0x%08x=0x%08x\n", 
+                               current_pc, "mul", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x1: { // mulh
                         res = (uint32_t)((s64_rs1 * s64_rs2) >> 32);
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x*0x%08x=0x%08x\n", 
-                               current_pc, "mulh", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x*0x%08x=0x%08x\n", 
+                               current_pc, "mulh", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x2: { // mulhsu
                         res = (uint32_t)((s64_rs1 * u64_rs2) >> 32);
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s         %s=0x%08x*0x%08x=0x%08x\n",
-                               current_pc, "mulhsu", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_urs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x*0x%08x=0x%08x\n",
+                               current_pc, "mulhsu", operand_str, x_label[rd], v_rs1, v_urs2, res);
                         break;
                     }
                     case 0x3: { // mulhu
                         res = (uint32_t)((u64_rs1 * u64_rs2) >> 32);
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s         %s=0x%08x*0x%08x=0x%08x\n",
-                               current_pc, "mulhu", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_urs1, v_urs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x*0x%08x=0x%08x\n",
+                               current_pc, "mulhu", operand_str, x_label[rd], v_urs1, v_urs2, res);
                         break;
                     }
                     case 0x4: { // div
@@ -345,9 +314,8 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                         else res = v_rs1 / v_rs2;
                         
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x/0x%08x=0x%08x\n", 
-                               current_pc, "div", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x/0x%08x=0x%08x\n", 
+                               current_pc, "div", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x5: { // divu
@@ -355,9 +323,8 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                         else res = v_urs1 / v_urs2;
                         
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x/0x%08x=0x%08x\n", 
-                               current_pc, "divu", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_urs1, v_urs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x/0x%08x=0x%08x\n", 
+                               current_pc, "divu", operand_str, x_label[rd], v_urs1, v_urs2, res);
                         break;
                     }
                     case 0x6: { // rem
@@ -366,9 +333,8 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                         else res = v_rs1 % v_rs2;
                         
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x%%0x%08x=0x%08x\n", 
-                               current_pc, "rem", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_rs1, v_rs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x%%0x%08x=0x%08x\n", 
+                               current_pc, "rem", operand_str, x_label[rd], v_rs1, v_rs2, res);
                         break;
                     }
                     case 0x7: { // remu
@@ -376,9 +342,8 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                         else res = v_urs1 % v_urs2;
                         
                         if(rd != 0) registers[rd] = res;
-                        fprintf(output_file, "0x%08x:%-7s %s,%s,%s           %s=0x%08x%%0x%08x=0x%08x\n", 
-                               current_pc, "remu", x_label[rd], x_label[rs1], x_label[rs2],
-                               x_label[rd], v_urs1, v_urs2, res);
+                        fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x%%0x%08x=0x%08x\n", 
+                               current_pc, "remu", operand_str, x_label[rd], v_urs1, v_urs2, res);
                         break;
                     }
                 }
@@ -405,16 +370,13 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             pc = target_address;
             pc_updated = 1;  
             
-            fprintf(output_file, "0x%08x:%-7s %s,0x%05x        pc=0x%08x,%s=0x%08x\n", 
-                   current_pc, "jal",
-                   x_label[rd],
-                   (offset >> 1) & 0xFFFFF, 
-                   target_address,
-                   x_label[rd],
-                   return_address);
+            sprintf(operand_str, "%s,0x%05x", x_label[rd], (offset >> 1) & 0xFFFFF);
+            fprintf(output_file, "0x%08x:%-7s %-20s pc=0x%08x,%s=0x%08x\n", 
+                   current_pc, "jal", operand_str, 
+                   target_address, x_label[rd], return_address);
             break;
         }
-        case 0x63: {
+        case 0x63: { // Branches
             uint32_t funct3 = (instruction >> 12) & 0x7;
             uint32_t rs1   = (instruction >> 15) & 0x1F;
             uint32_t rs2   = (instruction >> 20) & 0x1F;
@@ -444,27 +406,21 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 case 0x6: instr_name = "bltu"; op_symbol = "<";  if (u_val_rs1 < u_val_rs2) condition_met = 1; is_unsigned = 1; break;
                 case 0x7: instr_name = "bgeu"; op_symbol = ">="; if (u_val_rs1 >= u_val_rs2) condition_met = 1; is_unsigned = 1; break;
             }
+            
+            sprintf(operand_str, "%s,%s,0x%03x", x_label[rs1], x_label[rs2], (offset >> 1) & 0xFFF);
+            
             if (is_unsigned) {
-                fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
-                       current_pc,
-                       instr_name,
-                       x_label[rs1], x_label[rs2],
-                       (offset >> 1) & 0xFFF, 
+                fprintf(output_file, "0x%08x:%-7s %-20s (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
+                       current_pc, instr_name, operand_str,
                        u_val_rs1, op_symbol, u_val_rs2, 
-                       condition_met,
-                       (condition_met ? (current_pc + offset) : (current_pc + 4))
-                       );
+                       condition_met, (condition_met ? (current_pc + offset) : (current_pc + 4)));
             } else {
-                fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x         (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
-                       current_pc,
-                       instr_name,
-                       x_label[rs1], x_label[rs2],
-                       (offset >> 1) & 0xFFF, 
+                fprintf(output_file, "0x%08x:%-7s %-20s (0x%08x%s0x%08x)=%d->pc=0x%08x\n",
+                       current_pc, instr_name, operand_str,
                        val_rs1, op_symbol, val_rs2,
-                       condition_met,
-                       (condition_met ? (current_pc + offset) : (current_pc + 4))
-                       );
+                       condition_met, (condition_met ? (current_pc + offset) : (current_pc + 4)));
             }
+            
             if (condition_met) {
                 pc = current_pc + offset;
                 pc_updated = 1;
@@ -477,12 +433,10 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             
             if (rd != 0) registers[rd] = imm_u;
 
-            fprintf(output_file, "0x%08x:%-7s %s,0x%05x          %s=0x%08x\n",
-                   current_pc, "lui",
-                   x_label[rd],
-                   (imm_u >> 12), 
-                   x_label[rd],
-                   imm_u); 
+            sprintf(operand_str, "%s,0x%05x", x_label[rd], (imm_u >> 12));
+            fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x\n",
+                   current_pc, "lui", operand_str,
+                   x_label[rd], imm_u); 
             break;
         }
         case 0x17: { // auipc
@@ -492,14 +446,11 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t res = current_pc + imm_u;
 
             if (rd != 0) registers[rd] = res;
-            fprintf(output_file, "0x%08x:%-7s %s,0x%05x          %s=0x%08x+0x%08x=0x%08x\n",
-                   current_pc, "auipc",
-                   x_label[rd],
-                   (imm_u >> 12) & 0xFFFFF,
-                   x_label[rd],
-                   current_pc,
-                   imm_u,
-                   res);
+            
+            sprintf(operand_str, "%s,0x%05x", x_label[rd], (imm_u >> 12) & 0xFFFFF);
+            fprintf(output_file, "0x%08x:%-7s %-20s %s=0x%08x+0x%08x=0x%08x\n",
+                   current_pc, "auipc", operand_str,
+                   x_label[rd], current_pc, imm_u, res);
             break;
         }
         case 0x67: { // jalr
@@ -517,14 +468,13 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             pc = target_address; 
             pc_updated = 1;
             
-            fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x       pc=0x%08x+0x%08x,%s=0x%08x\n", 
-                   current_pc, "jalr",
-                   x_label[rd], x_label[rs1], (imm & 0xFFF),
-                   val_rs1, imm,
-                   x_label[rd], return_address);
+            sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF));
+            fprintf(output_file, "0x%08x:%-7s %-20s pc=0x%08x+0x%08x,%s=0x%08x\n", 
+                   current_pc, "jalr", operand_str,
+                   val_rs1, imm, x_label[rd], return_address);
             break;
         }
-        case 0x03: { 
+        case 0x03: { // Loads
             uint32_t rd = (instruction >> 7) & 0x1F;
             uint32_t funct3 = (instruction >> 12) & 0x7;
             uint32_t rs1 = (instruction >> 15) & 0x1F;
@@ -534,6 +484,8 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t address = val_rs1 + imm;
             uint32_t res; 
             const char* instr_name = "???";
+
+            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rd], (imm & 0xFFF), x_label[rs1]);
 
             switch (funct3) {
                 case 0x0: { // lb
@@ -576,18 +528,12 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                     pc = 0; 
                     return;
             }
-            fprintf(output_file, "0x%08x:%-7s %s,0x%03x(%s)      %s=mem[0x%08x]=0x%08x\n",
-                   current_pc,
-                   instr_name,
-                   x_label[rd],
-                   (imm & 0xFFF),
-                   x_label[rs1],
-                   x_label[rd],
-                   address,
-                   res);
+            fprintf(output_file, "0x%08x:%-7s %-20s %s=mem[0x%08x]=0x%08x\n",
+                   current_pc, instr_name, operand_str,
+                   x_label[rd], address, res);
             break;
         }
-        case 0x23: { 
+        case 0x23: { // Stores
             uint32_t funct3 = (instruction >> 12) & 0x7;
             uint32_t rs1 = (instruction >> 15) & 0x1F;
             uint32_t rs2 = (instruction >> 20) & 0x1F;
@@ -602,38 +548,31 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t address = val_rs1 + imm;
             const char* instr_name = "???";
 
+            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rs2], (imm & 0xFFF), x_label[rs1]);
+
             switch (funct3) {
                 case 0x0: { // sb
                     instr_name = "sb";
                     write_byte_to_memory(address, (uint8_t)val_rs2);
-                    fprintf(output_file, "0x%08x:%-7s %s,0x%03x(%s)      mem[0x%08x]=0x%02x\n",
-                           current_pc,
-                           instr_name,
-                           x_label[rs2], (imm & 0xFFF), x_label[rs1],
-                           address,
-                           (uint8_t)val_rs2);
+                    fprintf(output_file, "0x%08x:%-7s %-20s mem[0x%08x]=0x%02x\n",
+                           current_pc, instr_name, operand_str,
+                           address, (uint8_t)val_rs2);
                     break;
                 }
                 case 0x1: { // sh
                     instr_name = "sh";
                     write_half_word_to_memory(address, (uint16_t)val_rs2);
-                    fprintf(output_file, "0x%08x:%-7s %s,0x%03x(%s)      mem[0x%08x]=0x%04x\n",
-                           current_pc,
-                           instr_name,
-                           x_label[rs2], (imm & 0xFFF), x_label[rs1],
-                           address,
-                           (uint16_t)val_rs2);
+                    fprintf(output_file, "0x%08x:%-7s %-20s mem[0x%08x]=0x%04x\n",
+                           current_pc, instr_name, operand_str,
+                           address, (uint16_t)val_rs2);
                     break;
                 }
                 case 0x2: { // sw
                     instr_name = "sw";
                     write_word_to_memory(address, val_rs2);
-                    fprintf(output_file, "0x%08x:%-7s %s,0x%03x(%s)      mem[0x%08x]=0x%08x\n",
-                           current_pc,
-                           instr_name,
-                           x_label[rs2], (imm & 0xFFF), x_label[rs1],
-                           address,
-                           val_rs2);
+                    fprintf(output_file, "0x%08x:%-7s %-20s mem[0x%08x]=0x%08x\n",
+                           current_pc, instr_name, operand_str,
+                           address, val_rs2);
                      break;
                 }
                 default:
