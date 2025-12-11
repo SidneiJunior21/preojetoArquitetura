@@ -81,7 +81,14 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
 
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
         int c = getchar();
-        if (c == EOF) return 0xFFFFFFFF;
+        if (c == EOF) {
+            static int eof_warned = 0;
+            if (!eof_warned) {
+                eof_warned = 1;
+                return 10;
+            }
+            return 0xFFFFFFFF;
+        }
         return (uint32_t)c; 
     }
 
@@ -331,6 +338,11 @@ int main(int argc, char *argv[]) {
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
     while (1) {
+        if (pc == 0) {
+            printf("\n[Simulador] Erro Fatal: O PC foi para 0x0.\n");
+            printf("[Simulador] Provavel causa: Excecao sem tratamento (mtvec=0) ou estouro de pilha.\n");
+            break; 
+        }
         if (pc % 4 != 0) { raise_exception(CAUSE_INSN_ACCESS, pc); continue; }
         uint32_t idx = pc - 0x80000000;
         if (idx > MEM_SIZE - 4) { raise_exception(CAUSE_INSN_ACCESS, pc); continue; }
