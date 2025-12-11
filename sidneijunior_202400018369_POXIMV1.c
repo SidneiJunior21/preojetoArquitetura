@@ -42,6 +42,8 @@ uint32_t plic_regs[1024];
 
 int trap_occurred = 0; 
 
+FILE *terminal_file = NULL;
+
 const char* x_label[32] = { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6" };
 
 void raise_exception(uint32_t cause, uint32_t tval) {
@@ -66,7 +68,6 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         }
         return val;
     }
-    
     else if (addr >= CLINT_BASE && addr < (CLINT_BASE + CLINT_SIZE)) {
         if (addr == 0x02004000) return (uint32_t)(mtimecmp);
         if (addr == 0x02004004) return (uint32_t)(mtimecmp >> 32);
@@ -74,11 +75,9 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         if (addr == 0x0200bffc) return (uint32_t)(mtime >> 32);
         return 0;
     }
-
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
         return 0; 
     }
-
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
         int c = getchar();
         if (c == EOF) {
@@ -106,23 +105,19 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
         }
         return;
     }
-
     else if (addr == UART_BASE) {
         putchar((char)value);
+        if (terminal_file != NULL) {
+            fputc((char)value, terminal_file);
+        }
         fflush(stdout);
         return;
     }
-
     else if (addr >= CLINT_BASE && addr < (CLINT_BASE + CLINT_SIZE)) {
-        if (addr == 0x02004000) {
-            mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | value;
-        }
-        else if (addr == 0x02004004) {
-            mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)value << 32);
-        }
+        if (addr == 0x02004000) mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | value;
+        else if (addr == 0x02004004) mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)value << 32);
         return;
     }
-
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
         return;
     }
@@ -193,7 +188,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                     case 0x0: res = v_rs1 - v_rs2; instr_valid=1; fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x-0x%08x=0x%08x\n", current_pc, "sub", operand_str, x_label[rd], v_rs1, v_rs2, res); break;
                     case 0x5: res = v_rs1 >> shamt; instr_valid=1; fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x>>>%u=0x%08x\n", current_pc, "sra", operand_str, x_label[rd], v_rs1, shamt, res); break;
                 }
-            } else if (funct7 == 0x01) { // M Ext
+            } else if (funct7 == 0x01) {
                 int64_t s64_rs1 = (int64_t)v_rs1; int64_t s64_rs2 = (int64_t)v_rs2; uint64_t u64_rs1 = (uint64_t)v_urs1; uint64_t u64_rs2 = (uint64_t)v_urs2;
                 switch (funct3) {
                     case 0x0: res = v_rs1 * v_rs2; instr_valid=1; fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x*0x%08x=0x%08x\n", current_pc, "mul", operand_str, x_label[rd], v_rs1, v_rs2, res); break;
@@ -317,6 +312,14 @@ int main(int argc, char *argv[]) {
     FILE *hex_file = fopen(argv[1], "r"); if (hex_file == NULL) return 1;
     FILE *output_file = fopen(argv[2], "w"); if (output_file == NULL) { fclose(hex_file); return 1; }
     
+    terminal_file = fopen("terminal.out", "w");
+    if (terminal_file == NULL) {
+        perror("Erro ao criar terminal.out");
+        fclose(hex_file);
+        fclose(output_file);
+        return 1;
+    }
+
     memset(memory, 0, MEM_SIZE); memset(csrs, 0, sizeof(csrs));
     char line[1024]; uint32_t current_address = 0; int address_set = 0;
 
@@ -372,5 +375,8 @@ int main(int argc, char *argv[]) {
         
         registers[0] = 0;
     }
+    
+    if (terminal_file) fclose(terminal_file);
+
     fclose(output_file); return 0;
 }
