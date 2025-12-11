@@ -4,38 +4,40 @@
 .equ UART_BASE, 0x10000000
 
 _start:
+    li sp, 0x80100000
+    
     jal ra, read_int
     mv s1, a0
     
     la s2, array_start
 
-    mv t0, zero
+    mv s3, zero           
 read_loop:
-    bge t0, s1, end_read_loop
+    bge s3, s1, end_read_loop
     
     jal ra, read_int
     
-    slli t1, t0, 2
+    slli t1, s3, 2
     add t2, s2, t1
     sw a0, 0(t2)
     
-    addi t0, t0, 1
+    addi s3, s3, 1
     j read_loop
 end_read_loop:
 
-    li t0, 0
+    li s3, 0
 outer_loop:
     addi t3, s1, -1
-    bge t0, t3, end_sort
+    bge s3, t3, end_sort
 
-    li t1, 0
-    sub t4, s1, t0
+    li s4, 0
+    sub t4, s1, s3
     addi t4, t4, -1
 
 inner_loop:
-    bge t1, t4, end_inner # se j >= Limit, fim inner
+    bge s4, t4, end_inner
 
-    slli t5, t1, 2
+    slli t5, s4, 2
     add t5, s2, t5
     lw t6, 0(t5)
     
@@ -47,31 +49,31 @@ inner_loop:
     sw t6, 4(t5)
 
 no_swap:
-    addi t1, t1, 1
+    addi s4, s4, 1
     j inner_loop
 
 end_inner:
-    addi t0, t0, 1
+    addi s3, s3, 1
     j outer_loop
 end_sort:
 
-    mv t0, zero
+    mv s3, zero
 print_loop:
-    bge t0, s1, end_program
+    bge s3, s1, end_program
 
-    slli t1, t0, 2
+    slli t1, s3, 2
     add t2, s2, t1
     lw a0, 0(t2)
     
     jal ra, print_int
 
     addi t3, s1, -1
-    beq t0, t3, skip_comma
-    li a0, 44             # ASCII ','
+    beq s3, t3, skip_comma
+    li a0, 44
     jal ra, put_char
 skip_comma:
 
-    addi t0, t0, 1        # i++
+    addi s3, s3, 1
     j print_loop
 
 end_program:
@@ -106,7 +108,6 @@ skip_whitespace:
     li t1, 13
     beq a0, t1, skip_whitespace
     
-    # Verifica sinal negativo
     li t1, 45
     bne a0, t1, check_digit
     li t4, 1
@@ -132,7 +133,6 @@ parse_loop_next_char:
     j parse_loop
 
 end_parse:
-    # Aplica o sinal
     beqz t4, return_val
     sub t3, zero, t3
 
@@ -158,9 +158,12 @@ check_neg_print:
     bge t0, zero, positive_print
     
     li a0, 45
+    addi sp, sp, -4 
     sw t0, 0(sp)
     jal ra, put_char
     lw t0, 0(sp)
+    addi sp, sp, 4
+    
     sub t0, zero, t0
 
 positive_print:
@@ -194,6 +197,5 @@ end_print_int:
 
 .section .bss
 .align 4
-# Reserva espaço para o array após o código
 array_start:
     .space 4000
