@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+// --- Definições de CSRs ---
 #define CSR_MSTATUS 0x300
 #define CSR_MIE     0x304
 #define CSR_MTVEC   0x305
@@ -21,6 +22,7 @@
 #define CAUSE_MTI              (INTERRUPT_BIT | 7)
 #define CAUSE_MEI              (INTERRUPT_BIT | 11)
 
+// --- Mapeamento de Memória ---
 #define CLINT_BASE  0x02000000
 #define CLINT_SIZE  0x00010000
 #define PLIC_BASE   0x0c000000
@@ -42,8 +44,8 @@ uint32_t plic_regs[1024];
 
 int trap_occurred = 0; 
 
-FILE *terminal_file = NULL;
-FILE *input_file = NULL;
+FILE *terminal_file = NULL; 
+FILE *input_file = NULL;    
 
 const char* x_label[32] = { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6" };
 
@@ -84,14 +86,14 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         if (input_file != NULL) {
             c = fgetc(input_file);
         } else {
-            c = getchar();
+            c = EOF; 
         }
 
         if (c == EOF) {
             static int eof_warned = 0;
             if (!eof_warned) {
                 eof_warned = 1;
-                return 10; 
+                return 10;
             }
             return 0xFFFFFFFF;
         }
@@ -315,28 +317,21 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 3) { 
-        fprintf(stderr, "Uso: %s <arquivo.hex> <arquivo.out> [arquivo.in]\n", argv[0]); 
-        return 1; 
-    }
+    if (argc < 3) { fprintf(stderr, "Uso: %s <arquivo.hex> <arquivo.out> [arquivo.in]\n", argv[0]); return 1; }
+    FILE *hex_file = fopen(argv[1], "r"); if (hex_file == NULL) return 1;
+    FILE *output_file = fopen(argv[2], "w"); if (output_file == NULL) { fclose(hex_file); return 1; }
     
-    FILE *hex_file = fopen(argv[1], "r"); 
-    if (hex_file == NULL) { perror("Erro hex"); return 1; }
-    
-    FILE *output_file = fopen(argv[2], "w"); 
-    if (output_file == NULL) { fclose(hex_file); perror("Erro out"); return 1; }
-
     input_file = NULL;
     terminal_file = NULL;
 
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
         if (input_file == NULL) {
-            perror("Erro ao abrir arquivo de entrada (.in)");
+            perror("Erro ao abrir arquivo .in");
             fclose(hex_file); fclose(output_file);
             return 1;
         }
-        printf("Modo Arquivo: Lendo de %s. Gerando terminal.out.\n", argv[3]);
+        printf("Lendo entrada do arquivo: %s\n", argv[3]);
         
         terminal_file = fopen("terminal.out", "w");
         if (terminal_file == NULL) {
@@ -345,7 +340,7 @@ int main(int argc, char *argv[]) {
             return 1;
         }
     } else {
-        printf("Modo Interativo: Lendo do Teclado. terminal.out NAO sera gerado.\n");
+        printf("Modo Sem Entrada: Executando sem dados (EOF imediato).\n");
     }
 
     memset(memory, 0, MEM_SIZE); memset(csrs, 0, sizeof(csrs));
@@ -406,7 +401,6 @@ int main(int argc, char *argv[]) {
     
     if (terminal_file) fclose(terminal_file);
     if (input_file) fclose(input_file);
-    
     fclose(output_file);
     return 0;
 }
