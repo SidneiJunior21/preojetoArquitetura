@@ -314,12 +314,12 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             if (funct3 == 0) {
                 if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(output_file, "0x%08x:ecall\n", current_pc); }
                 else if (csr_addr == 1) { fprintf(output_file, "0x%08x:ebreak\n", current_pc); }
-                else if (csr_addr == 0x302) {
+                else if (csr_addr == 0x302) { 
                     pc = csrs[CSR_MEPC]; 
                     pc_updated = 1; 
                     
                     uint32_t mstatus = csrs[CSR_MSTATUS];
-                    uint32_t mpie_bit = (mstatus & 0x80) ? 1 : 0;
+                    uint32_t mpie_bit = (mstatus >> 7) & 1;
                     mstatus = (mstatus & ~0x8) | (mpie_bit << 3);
                     mstatus |= 0x80;
                     csrs[CSR_MSTATUS] = mstatus;
@@ -422,7 +422,7 @@ int main(int argc, char *argv[]) {
             if (mtime >= mtimecmp) {
                 csrs[CSR_MIP] |= 0x80;
             } else {
-                csrs[CSR_MIP] &= ~0x80;
+                csrs[CSR_MIP] &= ~0x80; 
             }
         }
 
