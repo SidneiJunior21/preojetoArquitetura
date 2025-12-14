@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// --- Definições de CSRs ---
 #define CSR_MSTATUS 0x300
 #define CSR_MIE     0x304
 #define CSR_MTVEC   0x305
@@ -12,47 +11,44 @@
 #define CSR_MTVAL   0x343
 #define CSR_MIP     0x344
 
-// --- Códigos de Exceção (e_event) ---
-#define CAUSE_INSN_ACCESS      0x1  
-#define CAUSE_ILLEGAL_INSTR    0x2  
-#define CAUSE_LOAD_ACCESS      0x5  
-#define CAUSE_STORE_ACCESS     0x7  
-#define CAUSE_ECALL_MMODE      0xb  
+#define CAUSE_INSN_ACCESS      0x1
+#define CAUSE_ILLEGAL_INSTR    0x2
+#define CAUSE_LOAD_ACCESS      0x5
+#define CAUSE_STORE_ACCESS     0x7
+#define CAUSE_ECALL_MMODE      0xb
+#define CAUSE_MSI              0x80000003
+#define CAUSE_MTI              0x80000007
+#define CAUSE_MEI              0x8000000b
 
-// --- Códigos de Interrupção (i_event) ---
-#define INTERRUPT_BIT          0x80000000
-#define CAUSE_MSI              (INTERRUPT_BIT | 3)  // software
-#define CAUSE_MTI              (INTERRUPT_BIT | 7)  // timer
-#define CAUSE_MEI              (INTERRUPT_BIT | 11) // external
-
-// --- Mapeamento de Memória ---
 #define CLINT_BASE  0x02000000
 #define CLINT_SIZE  0x00010000
 #define PLIC_BASE   0x0c000000
 #define PLIC_SIZE   0x00400000
+#define PLIC_CLAIM  0x0c200004
+#define PLIC_CLAIM_ADDR 0x0c200000 
+
 #define UART_BASE   0x10000000
 #define UART_SIZE   0x100
 #define RAM_BASE    0x80000000
 #define MEM_SIZE    (1024 * 1024)
 
-// --- CONFIGURAÇÃO ---
-#define TIMER_DIVIDER 100  
+#define TIMER_DIVIDER 100
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
-uint32_t csrs[4096]; 
+uint32_t csrs[4096];
 uint8_t memory[MEM_SIZE];
 
 uint64_t mtime = 0;
 uint64_t mtimecmp = -1;
-uint32_t msip = 0; 
+uint32_t msip = 0;
 
-uint32_t plic_regs[1024]; 
+uint8_t uart_ier = 0;
 
-int trap_occurred = 0; 
+int trap_occurred = 0;
 
-FILE *terminal_file = NULL; 
-FILE *input_file = NULL;    
+FILE *terminal_file = NULL;
+FILE *input_file = NULL;
 
 const char* x_label[32] = { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4", "t5", "t6" };
 
@@ -62,8 +58,7 @@ void raise_exception(uint32_t cause, uint32_t tval) {
     csrs[CSR_MEPC] = pc;
     csrs[CSR_MCAUSE] = cause;
     csrs[CSR_MTVAL] = tval;
-    
-    // Desabilitar Interrupções (Salva MIE em MPIE e zera MIE)
+
     uint32_t mstatus = csrs[CSR_MSTATUS];
     uint32_t mie_bit = (mstatus & 0x8) ? 1 : 0;
     mstatus = (mstatus & ~0x80) | (mie_bit << 7);
@@ -71,6 +66,7 @@ void raise_exception(uint32_t cause, uint32_t tval) {
     csrs[CSR_MSTATUS] = mstatus;
 
     pc = csrs[CSR_MTVEC] & ~0x3;
+    
     trap_occurred = 1;
 }
 
@@ -78,11 +74,8 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
     if (addr >= RAM_BASE && addr < (RAM_BASE + MEM_SIZE)) {
         uint32_t index = addr - RAM_BASE;
         if (index > MEM_SIZE - size_bytes) { raise_exception(CAUSE_LOAD_ACCESS, addr); return 0; }
-        
         uint32_t val = 0;
-        for(int i=0; i<size_bytes; i++) {
-            val |= (uint32_t)memory[index + i] << (8*i);
-        }
+        for(int i=0; i<size_bytes; i++) val |= (uint32_t)memory[index + i] << (8*i);
         return val;
     }
     else if (addr >= CLINT_BASE && addr < (CLINT_BASE + CLINT_SIZE)) {
@@ -94,24 +87,23 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
-        return 0; 
+        if (addr == PLIC_CLAIM_ADDR || addr == 0x0c200004) {
+            if (uart_ier & 0x2) return 1;
+            return 0;
+        }
+        return 0;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if ((addr - UART_BASE) == 0) {
-            int c;
-            if (input_file != NULL) {
-                c = fgetc(input_file);
-            } else {
-                c = EOF; 
-            }
+        if ((addr - UART_BASE) == 0) { // RBR (Read Buffer)
+            int c = (input_file) ? fgetc(input_file) : EOF;
             if (c == EOF) {
                 static int eof_warned = 0;
                 if (!eof_warned) { eof_warned = 1; return 10; }
-                return 0xFFFFFFFF; 
+                return 0xFFFFFFFF;
             }
             return (uint32_t)c;
         }
-        return 0; 
+        return 0;
     }
     raise_exception(CAUSE_LOAD_ACCESS, addr);
     return 0;
@@ -121,23 +113,22 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
     if (addr >= RAM_BASE && addr < (RAM_BASE + MEM_SIZE)) {
         uint32_t index = addr - RAM_BASE;
         if (index > MEM_SIZE - size_bytes) { raise_exception(CAUSE_STORE_ACCESS, addr); return; }
-        for(int i=0; i<size_bytes; i++) {
-            memory[index + i] = (value >> (8*i)) & 0xFF;
-        }
+        for(int i=0; i<size_bytes; i++) memory[index + i] = (value >> (8*i)) & 0xFF;
         return;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if (addr == UART_BASE) {
+        if (addr == UART_BASE) { 
             putchar((char)value);
-            if (terminal_file != NULL) fputc((char)value, terminal_file);
+            if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
+        }
+        else if (addr == UART_BASE + 1) {
+            uart_ier = value & 0xFF;
         }
         return;
     }
     else if (addr >= CLINT_BASE && addr < (CLINT_BASE + CLINT_SIZE)) {
-        if (addr == 0x02000000) {
-            msip = value & 0x1; 
-        }
+        if (addr == 0x02000000) msip = value & 0x1;
         else if (addr == 0x02004000) mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | value;
         else if (addr == 0x02004004) mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)value << 32);
         return;
@@ -151,7 +142,6 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
 uint32_t read_word_from_memory(uint32_t address) { return bus_load(address, 4); }
 uint16_t read_half_word_from_memory(uint32_t address) { return (uint16_t)bus_load(address, 2); }
 uint8_t read_byte_from_memory(uint32_t address) { return (uint8_t)bus_load(address, 1); }
-
 void write_word_to_memory(uint32_t address, uint32_t value) { bus_store(address, value, 4); }
 void write_half_word_to_memory(uint32_t address, uint16_t value) { bus_store(address, value, 2); }
 void write_byte_to_memory(uint32_t address, uint8_t value) { bus_store(address, value, 1); }
@@ -160,7 +150,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
     uint32_t opcode = instruction & 0x7F;
     int pc_updated = 0;
     trap_occurred = 0;
-    char operand_str[40]; 
+    char operand_str[40];
 
     switch (opcode) {
         case 0x13: { // I-Type
@@ -310,14 +300,12 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 else if (csr_addr == 0x302) { 
                     pc = csrs[CSR_MEPC]; 
                     pc_updated = 1; 
-                    
-                    // MRET: Restaura interrupções (MIE = MPIE)
+                    // MRET: Restaurar interrupções
                     uint32_t mstatus = csrs[CSR_MSTATUS];
                     uint32_t mpie_bit = (mstatus >> 7) & 1;
                     mstatus = (mstatus & ~0x8) | (mpie_bit << 3);
                     mstatus |= 0x80;
                     csrs[CSR_MSTATUS] = mstatus;
-
                     fprintf(output_file, "0x%08x:mret\n", current_pc); 
                 }
                 else { raise_exception(CAUSE_ILLEGAL_INSTR, instruction); }
@@ -380,13 +368,11 @@ int main(int argc, char *argv[]) {
     fclose(hex_file);
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
-    // --- LOOP PRINCIPAL COM CORREÇÃO ---
     int timer_divider_counter = 0;
     
     while (1) {
         if (pc == 0) {
             printf("\n[Simulador] Erro Fatal: O PC foi para 0x0.\n");
-            printf("[Simulador] Provavel causa: Excecao sem tratamento (mtvec=0) ou estouro de pilha.\n");
             break; 
         }
         if (pc % 4 != 0) { raise_exception(CAUSE_INSN_ACCESS, pc); continue; } 
@@ -401,34 +387,29 @@ int main(int argc, char *argv[]) {
         
         execute_instruction(instruction, pc_atual, output_file);
         
-        // CORREÇÃO CRÍTICA: Atualizar mtime devagar, mas checar interrupção SEMPRE
         timer_divider_counter++;
         if (timer_divider_counter >= TIMER_DIVIDER) {
             mtime++;
             timer_divider_counter = 0;
         }
         
-        // Verifica disparo do Timer a cada instrução (instantâneo)
-        if (mtime >= mtimecmp) {
-            csrs[CSR_MIP] |= 0x80; // Seta bit 7 (MTIP)
-        } else {
-            csrs[CSR_MIP] &= ~0x80; // Limpa bit 7 (MTIP)
-        }
+        if (mtime >= mtimecmp) csrs[CSR_MIP] |= 0x80;
+        else csrs[CSR_MIP] &= ~0x80;
 
-        if (msip & 0x1) {
-            csrs[CSR_MIP] |= 0x08; // Seta bit 3 (MSIP)
-        } else {
-            csrs[CSR_MIP] &= ~0x08; // Limpa bit 3
-        }
+        if (msip & 0x1) csrs[CSR_MIP] |= 0x08;
+        else csrs[CSR_MIP] &= ~0x08;
+
+        if (uart_ier & 0x2) csrs[CSR_MIP] |= 0x800;
+        else csrs[CSR_MIP] &= ~0x800;
         
         uint32_t mstatus = csrs[CSR_MSTATUS];
         uint32_t mie = csrs[CSR_MIE];
         uint32_t mip = csrs[CSR_MIP];
 
-        if (mstatus & 0x8) { // Se interrupções globais habilitadas
-            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0);
-            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0);
-            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0);
+        if (mstatus & 0x8) {
+            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0); // External
+            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0); // Software
+            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0); // Timer
         }
         
         registers[0] = 0;
