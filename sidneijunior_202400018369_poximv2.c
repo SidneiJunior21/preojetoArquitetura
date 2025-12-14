@@ -118,17 +118,19 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
         }
         return;
     }
-    else if (addr == UART_BASE) {
-        putchar((char)value);
-        if (terminal_file != NULL) {
-            fputc((char)value, terminal_file);
+    else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
+        if (addr == UART_BASE) {
+            putchar((char)value);
+            if (terminal_file != NULL) {
+                fputc((char)value, terminal_file);
+            }
+            fflush(stdout);
         }
-        fflush(stdout);
         return;
     }
     else if (addr >= CLINT_BASE && addr < (CLINT_BASE + CLINT_SIZE)) {
         if (addr == 0x02000000) {
-            msip = value & 0x1;
+            msip = value & 0x1; 
         }
         else if (addr == 0x02004000) mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | value;
         else if (addr == 0x02004004) mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)value << 32);
