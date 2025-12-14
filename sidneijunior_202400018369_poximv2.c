@@ -72,7 +72,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return val;
     }
     else if (addr >= CLINT_BASE && addr < (CLINT_BASE + CLINT_SIZE)) {
-        if (addr == 0x02000000) return msip; // Lê MSIP
+        if (addr == 0x02000000) return msip;
         if (addr == 0x02004000) return (uint32_t)(mtimecmp);
         if (addr == 0x02004004) return (uint32_t)(mtimecmp >> 32);
         if (addr == 0x0200bff8) return (uint32_t)(mtime);
@@ -80,25 +80,28 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
-        return 0; 
+        return 0;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        int c;
-        if (input_file != NULL) {
-            c = fgetc(input_file);
-        } else {
-            c = EOF; 
-        }
-
-        if (c == EOF) {
-            static int eof_warned = 0;
-            if (!eof_warned) {
-                eof_warned = 1;
-                return 10; 
+        if ((addr - UART_BASE) == 0) {
+            int c;
+            if (input_file != NULL) {
+                c = fgetc(input_file);
+            } else {
+                c = EOF; 
             }
-            return 0xFFFFFFFF; 
+
+            if (c == EOF) {
+                static int eof_warned = 0;
+                if (!eof_warned) {
+                    eof_warned = 1;
+                    return 10;
+                }
+                return 0xFFFFFFFF; 
+            }
+            return (uint32_t)c;
         }
-        return (uint32_t)c; 
+        return 0;
     }
 
     raise_exception(CAUSE_LOAD_ACCESS, addr); // load_fault
@@ -125,7 +128,7 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
     }
     else if (addr >= CLINT_BASE && addr < (CLINT_BASE + CLINT_SIZE)) {
         if (addr == 0x02000000) {
-            msip = value & 0x1; // Apenas o bit 0 importa para MSIP
+            msip = value & 0x1;
         }
         else if (addr == 0x02004000) mtimecmp = (mtimecmp & 0xFFFFFFFF00000000) | value;
         else if (addr == 0x02004004) mtimecmp = (mtimecmp & 0x00000000FFFFFFFF) | ((uint64_t)value << 32);
@@ -397,6 +400,7 @@ int main(int argc, char *argv[]) {
         } else {
             csrs[CSR_MIP] &= ~0x08;
         }
+        
         uint32_t mstatus = csrs[CSR_MSTATUS];
         uint32_t mie = csrs[CSR_MIE];
         uint32_t mip = csrs[CSR_MIP];
