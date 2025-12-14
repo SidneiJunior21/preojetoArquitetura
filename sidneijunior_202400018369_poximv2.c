@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+// --- Definições de CSRs ---
 #define CSR_MSTATUS 0x300
 #define CSR_MIE     0x304
 #define CSR_MTVEC   0x305
@@ -11,17 +12,20 @@
 #define CSR_MTVAL   0x343
 #define CSR_MIP     0x344
 
-#define CAUSE_INSN_ACCESS      0x1  // instruction_fault
-#define CAUSE_ILLEGAL_INSTR    0x2  // illegal_instruction
-#define CAUSE_LOAD_ACCESS      0x5  // load_fault
-#define CAUSE_STORE_ACCESS     0x7  // store_fault
-#define CAUSE_ECALL_MMODE      0xb  // environment_call
+// --- Códigos de Exceção (e_event) ---
+#define CAUSE_INSN_ACCESS      0x1  
+#define CAUSE_ILLEGAL_INSTR    0x2  
+#define CAUSE_LOAD_ACCESS      0x5  
+#define CAUSE_STORE_ACCESS     0x7  
+#define CAUSE_ECALL_MMODE      0xb  
 
+// --- Códigos de Interrupção (i_event) ---
 #define INTERRUPT_BIT          0x80000000
-#define CAUSE_MSI              (INTERRUPT_BIT | 3)  // software interrupt
-#define CAUSE_MTI              (INTERRUPT_BIT | 7)  // timer interrupt
-#define CAUSE_MEI              (INTERRUPT_BIT | 11) // external interrupt
+#define CAUSE_MSI              (INTERRUPT_BIT | 3)  // software
+#define CAUSE_MTI              (INTERRUPT_BIT | 7)  // timer
+#define CAUSE_MEI              (INTERRUPT_BIT | 11) // external
 
+// --- Mapeamento de Memória ---
 #define CLINT_BASE  0x02000000
 #define CLINT_SIZE  0x00010000
 #define PLIC_BASE   0x0c000000
@@ -31,6 +35,7 @@
 #define RAM_BASE    0x80000000
 #define MEM_SIZE    (1024 * 1024)
 
+// --- CONFIGURAÇÃO ---
 #define TIMER_DIVIDER 100  
 
 uint32_t registers[32];
@@ -58,13 +63,11 @@ void raise_exception(uint32_t cause, uint32_t tval) {
     csrs[CSR_MCAUSE] = cause;
     csrs[CSR_MTVAL] = tval;
     
+    // Desabilitar Interrupções (Salva MIE em MPIE e zera MIE)
     uint32_t mstatus = csrs[CSR_MSTATUS];
-    
     uint32_t mie_bit = (mstatus & 0x8) ? 1 : 0;
     mstatus = (mstatus & ~0x80) | (mie_bit << 7);
-    
     mstatus &= ~0x8;
-    
     csrs[CSR_MSTATUS] = mstatus;
 
     pc = csrs[CSR_MTVEC] & ~0x3;
@@ -101,20 +104,15 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             } else {
                 c = EOF; 
             }
-
             if (c == EOF) {
                 static int eof_warned = 0;
-                if (!eof_warned) {
-                    eof_warned = 1;
-                    return 10; 
-                }
+                if (!eof_warned) { eof_warned = 1; return 10; }
                 return 0xFFFFFFFF; 
             }
             return (uint32_t)c;
         }
         return 0; 
     }
-
     raise_exception(CAUSE_LOAD_ACCESS, addr);
     return 0;
 }
@@ -123,7 +121,6 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
     if (addr >= RAM_BASE && addr < (RAM_BASE + MEM_SIZE)) {
         uint32_t index = addr - RAM_BASE;
         if (index > MEM_SIZE - size_bytes) { raise_exception(CAUSE_STORE_ACCESS, addr); return; }
-        
         for(int i=0; i<size_bytes; i++) {
             memory[index + i] = (value >> (8*i)) & 0xFF;
         }
@@ -132,9 +129,7 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
         if (addr == UART_BASE) {
             putchar((char)value);
-            if (terminal_file != NULL) {
-                fputc((char)value, terminal_file);
-            }
+            if (terminal_file != NULL) fputc((char)value, terminal_file);
             fflush(stdout);
         }
         return;
@@ -150,7 +145,6 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
         return;
     }
-
     raise_exception(CAUSE_STORE_ACCESS, addr);
 }
 
@@ -177,7 +171,6 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t val_rs1 = registers[rs1];
             uint32_t res;
             uint32_t shamt = imm & 0x1F; 
-
             switch (funct3) {
                 case 0x0: res = val_rs1 + imm; if (rd != 0) registers[rd] = res; sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF)); fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x+0x%08x=0x%08x\n", current_pc, "addi", operand_str, x_label[rd], val_rs1, imm, res); break;
                 case 0x1: res = val_rs1 << shamt; if (rd != 0) registers[rd] = res; sprintf(operand_str, "%s,%s,%u", x_label[rd], x_label[rs1], shamt); fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x<<%u=0x%08x\n", current_pc, "slli", operand_str, x_label[rd], val_rs1, shamt, res); break;
@@ -318,6 +311,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                     pc = csrs[CSR_MEPC]; 
                     pc_updated = 1; 
                     
+                    // MRET: Restaura interrupções (MIE = MPIE)
                     uint32_t mstatus = csrs[CSR_MSTATUS];
                     uint32_t mpie_bit = (mstatus >> 7) & 1;
                     mstatus = (mstatus & ~0x8) | (mpie_bit << 3);
@@ -357,19 +351,11 @@ int main(int argc, char *argv[]) {
 
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
-        if (input_file == NULL) {
-            perror("Erro ao abrir arquivo .in");
-            fclose(hex_file); fclose(output_file);
-            return 1;
-        }
+        if (input_file == NULL) { perror("Erro ao abrir arquivo .in"); fclose(hex_file); fclose(output_file); return 1; }
         printf("Lendo entrada do arquivo: %s\n", argv[3]);
         
         terminal_file = fopen("terminal.out", "w");
-        if (terminal_file == NULL) {
-            perror("Erro ao criar terminal.out");
-            fclose(hex_file); fclose(output_file); fclose(input_file);
-            return 1;
-        }
+        if (terminal_file == NULL) { perror("Erro ao criar terminal.out"); fclose(hex_file); fclose(output_file); fclose(input_file); return 1; }
     } else {
         printf("Modo Sem Entrada: Executando sem dados (EOF imediato).\n");
     }
@@ -394,6 +380,7 @@ int main(int argc, char *argv[]) {
     fclose(hex_file);
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
+    // --- LOOP PRINCIPAL COM CORREÇÃO ---
     int timer_divider_counter = 0;
     
     while (1) {
@@ -414,38 +401,34 @@ int main(int argc, char *argv[]) {
         
         execute_instruction(instruction, pc_atual, output_file);
         
+        // CORREÇÃO CRÍTICA: Atualizar mtime devagar, mas checar interrupção SEMPRE
         timer_divider_counter++;
         if (timer_divider_counter >= TIMER_DIVIDER) {
             mtime++;
             timer_divider_counter = 0;
-            
-            if (mtime >= mtimecmp) {
-                csrs[CSR_MIP] |= 0x80;
-            } else {
-                csrs[CSR_MIP] &= ~0x80; 
-            }
+        }
+        
+        // Verifica disparo do Timer a cada instrução (instantâneo)
+        if (mtime >= mtimecmp) {
+            csrs[CSR_MIP] |= 0x80; // Seta bit 7 (MTIP)
+        } else {
+            csrs[CSR_MIP] &= ~0x80; // Limpa bit 7 (MTIP)
         }
 
         if (msip & 0x1) {
-            csrs[CSR_MIP] |= 0x08;
+            csrs[CSR_MIP] |= 0x08; // Seta bit 3 (MSIP)
         } else {
-            csrs[CSR_MIP] &= ~0x08;
+            csrs[CSR_MIP] &= ~0x08; // Limpa bit 3
         }
         
         uint32_t mstatus = csrs[CSR_MSTATUS];
         uint32_t mie = csrs[CSR_MIE];
         uint32_t mip = csrs[CSR_MIP];
 
-        if (mstatus & 0x8) {
-            if ((mie & 0x800) && (mip & 0x800)) {
-                raise_exception(CAUSE_MEI, 0);
-            }
-            else if ((mie & 0x8) && (mip & 0x8)) {
-                raise_exception(CAUSE_MSI, 0);
-            }
-            else if ((mie & 0x80) && (mip & 0x80)) {
-                raise_exception(CAUSE_MTI, 0);
-            }
+        if (mstatus & 0x8) { // Se interrupções globais habilitadas
+            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0);
+            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0);
+            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0);
         }
         
         registers[0] = 0;
