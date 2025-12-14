@@ -319,11 +319,15 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Uso: %s <arquivo.hex> <arquivo.out> [arquivo.in]\n", argv[0]); 
         return 1; 
     }
+    
     FILE *hex_file = fopen(argv[1], "r"); 
     if (hex_file == NULL) { perror("Erro hex"); return 1; }
-
+    
     FILE *output_file = fopen(argv[2], "w"); 
     if (output_file == NULL) { fclose(hex_file); perror("Erro out"); return 1; }
+
+    input_file = NULL;
+    terminal_file = NULL;
 
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
@@ -332,17 +336,16 @@ int main(int argc, char *argv[]) {
             fclose(hex_file); fclose(output_file);
             return 1;
         }
-        printf("Lendo entrada do arquivo: %s\n", argv[3]);
+        printf("Modo Arquivo: Lendo de %s. Gerando terminal.out.\n", argv[3]);
+        
+        terminal_file = fopen("terminal.out", "w");
+        if (terminal_file == NULL) {
+            perror("Erro ao criar terminal.out");
+            fclose(hex_file); fclose(output_file); fclose(input_file);
+            return 1;
+        }
     } else {
-        printf("Lendo entrada do Teclado (stdin)\n");
-    }
-    
-    terminal_file = fopen("terminal.out", "w");
-    if (terminal_file == NULL) {
-        perror("Erro ao criar terminal.out");
-        fclose(hex_file);
-        fclose(output_file);
-        return 1;
+        printf("Modo Interativo: Lendo do Teclado. terminal.out NAO sera gerado.\n");
     }
 
     memset(memory, 0, MEM_SIZE); memset(csrs, 0, sizeof(csrs));
@@ -402,8 +405,8 @@ int main(int argc, char *argv[]) {
     }
     
     if (terminal_file) fclose(terminal_file);
-
-    fclose(output_file);
     if (input_file) fclose(input_file);
+    
+    fclose(output_file);
     return 0;
 }
