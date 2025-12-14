@@ -31,6 +31,8 @@
 #define RAM_BASE    0x80000000
 #define MEM_SIZE    (1024 * 1024)
 
+#define TIMER_DIVIDER 100
+
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
 uint32_t csrs[4096]; 
@@ -38,7 +40,7 @@ uint8_t memory[MEM_SIZE];
 
 uint64_t mtime = 0;
 uint64_t mtimecmp = -1;
-uint32_t msip = 0;
+uint32_t msip = 0; 
 
 uint32_t plic_regs[1024]; 
 
@@ -80,7 +82,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
-        return 0;
+        return 0; 
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
         if ((addr - UART_BASE) == 0) {
@@ -95,7 +97,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
                 static int eof_warned = 0;
                 if (!eof_warned) {
                     eof_warned = 1;
-                    return 10;
+                    return 10; 
                 }
                 return 0xFFFFFFFF; 
             }
@@ -104,7 +106,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
 
-    raise_exception(CAUSE_LOAD_ACCESS, addr); // load_fault
+    raise_exception(CAUSE_LOAD_ACCESS, addr);
     return 0;
 }
 
@@ -140,7 +142,7 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
         return;
     }
 
-    raise_exception(CAUSE_STORE_ACCESS, addr); // store_fault
+    raise_exception(CAUSE_STORE_ACCESS, addr);
 }
 
 uint32_t read_word_from_memory(uint32_t address) { return bus_load(address, 4); }
@@ -220,7 +222,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 }
             }
             if (instr_valid) { if (rd != 0) registers[rd] = res; } 
-            else { raise_exception(CAUSE_ILLEGAL_INSTR, instruction); } // illegal_instruction
+            else { raise_exception(CAUSE_ILLEGAL_INSTR, instruction); }
             break;
         }
         case 0x6F: { // jal
@@ -301,7 +303,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
         case 0x73: { // SYSTEM / CSR
             uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rd = (instruction >> 7) & 0x1F; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t csr_addr = (instruction >> 20) & 0xFFF; uint32_t uimm = rs1; 
             if (funct3 == 0) {
-                if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(output_file, "0x%08x:ecall\n", current_pc); } // environment_call
+                if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(output_file, "0x%08x:ecall\n", current_pc); }
                 else if (csr_addr == 1) { fprintf(output_file, "0x%08x:ebreak\n", current_pc); }
                 else if (csr_addr == 0x302) { pc = csrs[CSR_MEPC]; pc_updated = 1; fprintf(output_file, "0x%08x:mret\n", current_pc); }
                 else { raise_exception(CAUSE_ILLEGAL_INSTR, instruction); }
@@ -372,13 +374,15 @@ int main(int argc, char *argv[]) {
     fclose(hex_file);
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
+    int timer_divider_counter = 0;
+    
     while (1) {
         if (pc == 0) {
             printf("\n[Simulador] Erro Fatal: O PC foi para 0x0.\n");
             printf("[Simulador] Provavel causa: Excecao sem tratamento (mtvec=0) ou estouro de pilha.\n");
             break; 
         }
-        if (pc % 4 != 0) { raise_exception(CAUSE_INSN_ACCESS, pc); continue; } // instruction_fault
+        if (pc % 4 != 0) { raise_exception(CAUSE_INSN_ACCESS, pc); continue; } 
         uint32_t idx = pc - 0x80000000;
         if (idx > MEM_SIZE - 4) { raise_exception(CAUSE_INSN_ACCESS, pc); continue; }
 
@@ -390,11 +394,16 @@ int main(int argc, char *argv[]) {
         
         execute_instruction(instruction, pc_atual, output_file);
         
-        mtime++;
-        if (mtime >= mtimecmp) {
-            csrs[CSR_MIP] |= 0x80;
-        } else {
-            csrs[CSR_MIP] &= ~0x80;
+        timer_divider_counter++;
+        if (timer_divider_counter >= TIMER_DIVIDER) {
+            mtime++;
+            timer_divider_counter = 0;
+            
+            if (mtime >= mtimecmp) {
+                csrs[CSR_MIP] |= 0x80;
+            } else {
+                csrs[CSR_MIP] &= ~0x80;
+            }
         }
 
         if (msip & 0x1) {
