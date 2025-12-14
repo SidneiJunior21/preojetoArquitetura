@@ -31,7 +31,7 @@
 #define RAM_BASE    0x80000000
 #define MEM_SIZE    (1024 * 1024)
 
-#define TIMER_DIVIDER 100
+#define TIMER_DIVIDER 100  
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
@@ -58,6 +58,15 @@ void raise_exception(uint32_t cause, uint32_t tval) {
     csrs[CSR_MCAUSE] = cause;
     csrs[CSR_MTVAL] = tval;
     
+    uint32_t mstatus = csrs[CSR_MSTATUS];
+    
+    uint32_t mie_bit = (mstatus & 0x8) ? 1 : 0;
+    mstatus = (mstatus & ~0x80) | (mie_bit << 7);
+    
+    mstatus &= ~0x8;
+    
+    csrs[CSR_MSTATUS] = mstatus;
+
     pc = csrs[CSR_MTVEC] & ~0x3;
     trap_occurred = 1;
 }
@@ -103,7 +112,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             }
             return (uint32_t)c;
         }
-        return 0;
+        return 0; 
     }
 
     raise_exception(CAUSE_LOAD_ACCESS, addr);
@@ -305,7 +314,18 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             if (funct3 == 0) {
                 if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(output_file, "0x%08x:ecall\n", current_pc); }
                 else if (csr_addr == 1) { fprintf(output_file, "0x%08x:ebreak\n", current_pc); }
-                else if (csr_addr == 0x302) { pc = csrs[CSR_MEPC]; pc_updated = 1; fprintf(output_file, "0x%08x:mret\n", current_pc); }
+                else if (csr_addr == 0x302) {
+                    pc = csrs[CSR_MEPC]; 
+                    pc_updated = 1; 
+                    
+                    uint32_t mstatus = csrs[CSR_MSTATUS];
+                    uint32_t mpie_bit = (mstatus & 0x80) ? 1 : 0;
+                    mstatus = (mstatus & ~0x8) | (mpie_bit << 3);
+                    mstatus |= 0x80;
+                    csrs[CSR_MSTATUS] = mstatus;
+
+                    fprintf(output_file, "0x%08x:mret\n", current_pc); 
+                }
                 else { raise_exception(CAUSE_ILLEGAL_INSTR, instruction); }
             } else {
                 uint32_t csr_val = csrs[csr_addr]; uint32_t new_val = csr_val;
