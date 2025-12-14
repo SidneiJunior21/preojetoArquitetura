@@ -25,8 +25,6 @@
 #define PLIC_BASE   0x0c000000
 #define PLIC_SIZE   0x00400000
 #define PLIC_CLAIM  0x0c200004
-#define PLIC_CLAIM_ADDR 0x0c200000 
-
 #define UART_BASE   0x10000000
 #define UART_SIZE   0x100
 #define RAM_BASE    0x80000000
@@ -43,9 +41,9 @@ uint64_t mtime = 0;
 uint64_t mtimecmp = -1;
 uint32_t msip = 0;
 
-uint8_t uart_ier = 0;
+uint32_t uart_ier = 0; 
 
-int trap_occurred = 0;
+int trap_occurred = 0; 
 
 FILE *terminal_file = NULL;
 FILE *input_file = NULL;
@@ -66,8 +64,7 @@ void raise_exception(uint32_t cause, uint32_t tval) {
     csrs[CSR_MSTATUS] = mstatus;
 
     pc = csrs[CSR_MTVEC] & ~0x3;
-    
-    trap_occurred = 1;
+    trap_occurred = 1; 
 }
 
 uint32_t bus_load(uint32_t addr, int size_bytes) {
@@ -87,14 +84,13 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
-        if (addr == PLIC_CLAIM_ADDR || addr == 0x0c200004) {
-            if (uart_ier & 0x2) return 1;
-            return 0;
+        if (addr == PLIC_CLAIM) {
+            if (uart_ier & 0x2) return 10;
         }
         return 0;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if ((addr - UART_BASE) == 0) { // RBR (Read Buffer)
+        if ((addr - UART_BASE) == 0) { // RBR
             int c = (input_file) ? fgetc(input_file) : EOF;
             if (c == EOF) {
                 static int eof_warned = 0;
@@ -117,13 +113,13 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
         return;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if (addr == UART_BASE) { 
+        if (addr == UART_BASE) { // THR: Output char
             putchar((char)value);
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
         }
-        else if (addr == UART_BASE + 1) {
-            uart_ier = value & 0xFF;
+        else if (addr == UART_BASE + 1) { // IER: Interrupt Enable
+            uart_ier = value & 0xFF; 
         }
         return;
     }
@@ -134,7 +130,7 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
         return;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
-        return;
+        return; 
     }
     raise_exception(CAUSE_STORE_ACCESS, addr);
 }
@@ -300,7 +296,6 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 else if (csr_addr == 0x302) { 
                     pc = csrs[CSR_MEPC]; 
                     pc_updated = 1; 
-                    // MRET: Restaurar interrupções
                     uint32_t mstatus = csrs[CSR_MSTATUS];
                     uint32_t mpie_bit = (mstatus >> 7) & 1;
                     mstatus = (mstatus & ~0x8) | (mpie_bit << 3);
@@ -339,11 +334,19 @@ int main(int argc, char *argv[]) {
 
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
-        if (input_file == NULL) { perror("Erro ao abrir arquivo .in"); fclose(hex_file); fclose(output_file); return 1; }
+        if (input_file == NULL) {
+            perror("Erro ao abrir arquivo .in");
+            fclose(hex_file); fclose(output_file);
+            return 1;
+        }
         printf("Lendo entrada do arquivo: %s\n", argv[3]);
         
         terminal_file = fopen("terminal.out", "w");
-        if (terminal_file == NULL) { perror("Erro ao criar terminal.out"); fclose(hex_file); fclose(output_file); fclose(input_file); return 1; }
+        if (terminal_file == NULL) {
+            perror("Erro ao criar terminal.out");
+            fclose(hex_file); fclose(output_file); fclose(input_file);
+            return 1;
+        }
     } else {
         printf("Modo Sem Entrada: Executando sem dados (EOF imediato).\n");
     }
@@ -400,16 +403,15 @@ int main(int argc, char *argv[]) {
         else csrs[CSR_MIP] &= ~0x08;
 
         if (uart_ier & 0x2) csrs[CSR_MIP] |= 0x800;
-        else csrs[CSR_MIP] &= ~0x800;
         
         uint32_t mstatus = csrs[CSR_MSTATUS];
         uint32_t mie = csrs[CSR_MIE];
         uint32_t mip = csrs[CSR_MIP];
 
         if (mstatus & 0x8) {
-            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0); // External
-            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0); // Software
-            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0); // Timer
+            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0);
+            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0);
+            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0);
         }
         
         registers[0] = 0;
