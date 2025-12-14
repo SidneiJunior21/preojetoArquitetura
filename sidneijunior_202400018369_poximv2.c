@@ -40,7 +40,7 @@ uint64_t mtime = 0;
 uint64_t mtimecmp = -1;
 uint32_t msip = 0;
 
-uint32_t uart_ier = 0; 
+uint32_t uart_ier = 0;
 
 int trap_occurred = 0; 
 
@@ -51,7 +51,6 @@ const char* x_label[32] = { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s
 
 void raise_exception(uint32_t cause, uint32_t tval) {
     if (trap_occurred) return;
-
     csrs[CSR_MEPC] = pc;
     csrs[CSR_MCAUSE] = cause;
     csrs[CSR_MTVAL] = tval;
@@ -72,7 +71,6 @@ void raise_exception(uint32_t cause, uint32_t tval) {
     } else {
         pc = base;
     }
-    
     trap_occurred = 1;
 }
 
@@ -108,9 +106,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             }
             return (uint32_t)c;
         }
-        if ((addr - UART_BASE) == 2) {
-            return 1; 
-        }
+        if ((addr - UART_BASE) == 2) return 1; 
         return 0;
     }
     raise_exception(CAUSE_LOAD_ACCESS, addr);
@@ -130,7 +126,7 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
         }
-        else if (addr == UART_BASE + 1) { // IER
+        else if (addr == UART_BASE + 1) { // IER (Offset 1)
             uart_ier = value; 
         }
         return;
@@ -157,10 +153,8 @@ void write_byte_to_memory(uint32_t address, uint8_t value) { bus_store(address, 
 void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_file) {
     uint32_t opcode = instruction & 0x7F;
     int pc_updated = 0;
-    
     trap_occurred = 0;
-    
-    char operand_str[40]; 
+    char operand_str[40];
 
     switch (opcode) {
         case 0x13: { // I-Type
@@ -348,11 +342,19 @@ int main(int argc, char *argv[]) {
 
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
-        if (input_file == NULL) { perror("Erro ao abrir arquivo .in"); fclose(hex_file); fclose(output_file); return 1; }
+        if (input_file == NULL) {
+            perror("Erro ao abrir arquivo .in");
+            fclose(hex_file); fclose(output_file);
+            return 1;
+        }
         printf("Lendo entrada do arquivo: %s\n", argv[3]);
         
         terminal_file = fopen("terminal.out", "w");
-        if (terminal_file == NULL) { perror("Erro ao criar terminal.out"); fclose(hex_file); fclose(output_file); fclose(input_file); return 1; }
+        if (terminal_file == NULL) {
+            perror("Erro ao criar terminal.out");
+            fclose(hex_file); fclose(output_file); fclose(input_file);
+            return 1;
+        }
     } else {
         printf("Modo Sem Entrada: Executando sem dados (EOF imediato).\n");
     }
@@ -415,9 +417,9 @@ int main(int argc, char *argv[]) {
         uint32_t mip = csrs[CSR_MIP];
 
         if (mstatus & 0x8) {
-            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0); 
-            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0); 
-            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0); 
+            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0); // External
+            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0); // Software
+            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0); // Timer
         }
         
         registers[0] = 0;
