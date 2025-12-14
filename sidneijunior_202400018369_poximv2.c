@@ -24,7 +24,6 @@
 #define CLINT_SIZE  0x00010000
 #define PLIC_BASE   0x0c000000
 #define PLIC_SIZE   0x00400000
-#define PLIC_CLAIM  0x0c200004
 #define UART_BASE   0x10000000
 #define UART_SIZE   0x100
 #define RAM_BASE    0x80000000
@@ -63,8 +62,18 @@ void raise_exception(uint32_t cause, uint32_t tval) {
     mstatus &= ~0x8;
     csrs[CSR_MSTATUS] = mstatus;
 
-    pc = csrs[CSR_MTVEC] & ~0x3;
-    trap_occurred = 1; 
+    uint32_t mtvec = csrs[CSR_MTVEC];
+    uint32_t mode = mtvec & 0x3;
+    uint32_t base = mtvec & ~0x3;
+
+    if ((mode == 1) && (cause & 0x80000000)) {
+        uint32_t exception_code = cause & 0x7FFFFFFF;
+        pc = base + (exception_code * 4);
+    } else {
+        pc = base;
+    }
+    
+    trap_occurred = 1;
 }
 
 uint32_t bus_load(uint32_t addr, int size_bytes) {
@@ -84,20 +93,23 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
-        if (addr == PLIC_CLAIM) {
+        if (addr == 0x0c200004) {
             if (uart_ier & 0x2) return 10;
         }
         return 0;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if ((addr - UART_BASE) == 0) { // RBR
+        if ((addr - UART_BASE) == 0) { // RBR (Read Buffer)
             int c = (input_file) ? fgetc(input_file) : EOF;
             if (c == EOF) {
                 static int eof_warned = 0;
-                if (!eof_warned) { eof_warned = 1; return 10; }
+                if (!eof_warned) { eof_warned = 1; return 10; } 
                 return 0xFFFFFFFF;
             }
             return (uint32_t)c;
+        }
+        if ((addr - UART_BASE) == 2) {
+            return 1; 
         }
         return 0;
     }
@@ -113,13 +125,13 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
         return;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if (addr == UART_BASE) { // THR: Output char
+        if (addr == UART_BASE) { // THR
             putchar((char)value);
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
         }
-        else if (addr == UART_BASE + 1) { // IER: Interrupt Enable
-            uart_ier = value & 0xFF; 
+        else if (addr == UART_BASE + 1) { // IER
+            uart_ier = value; 
         }
         return;
     }
@@ -145,8 +157,10 @@ void write_byte_to_memory(uint32_t address, uint8_t value) { bus_store(address, 
 void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_file) {
     uint32_t opcode = instruction & 0x7F;
     int pc_updated = 0;
+    
     trap_occurred = 0;
-    char operand_str[40];
+    
+    char operand_str[40]; 
 
     switch (opcode) {
         case 0x13: { // I-Type
@@ -334,19 +348,11 @@ int main(int argc, char *argv[]) {
 
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
-        if (input_file == NULL) {
-            perror("Erro ao abrir arquivo .in");
-            fclose(hex_file); fclose(output_file);
-            return 1;
-        }
+        if (input_file == NULL) { perror("Erro ao abrir arquivo .in"); fclose(hex_file); fclose(output_file); return 1; }
         printf("Lendo entrada do arquivo: %s\n", argv[3]);
         
         terminal_file = fopen("terminal.out", "w");
-        if (terminal_file == NULL) {
-            perror("Erro ao criar terminal.out");
-            fclose(hex_file); fclose(output_file); fclose(input_file);
-            return 1;
-        }
+        if (terminal_file == NULL) { perror("Erro ao criar terminal.out"); fclose(hex_file); fclose(output_file); fclose(input_file); return 1; }
     } else {
         printf("Modo Sem Entrada: Executando sem dados (EOF imediato).\n");
     }
@@ -409,9 +415,9 @@ int main(int argc, char *argv[]) {
         uint32_t mip = csrs[CSR_MIP];
 
         if (mstatus & 0x8) {
-            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0);
-            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0);
-            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0);
+            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0); 
+            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0); 
+            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0); 
         }
         
         registers[0] = 0;
