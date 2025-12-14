@@ -30,6 +30,7 @@
 #define MEM_SIZE    (1024 * 1024)
 
 #define TIMER_DIVIDER 100
+#define UART_TX_DELAY 1000
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
@@ -40,9 +41,10 @@ uint64_t mtime = 0;
 uint64_t mtimecmp = -1;
 uint32_t msip = 0;
 
-uint32_t uart_ier = 0;
+uint32_t uart_ier = 0; 
+int uart_tx_countdown = 0;
 
-int trap_occurred = 0; 
+int trap_occurred = 0;
 
 FILE *terminal_file = NULL;
 FILE *input_file = NULL;
@@ -51,6 +53,7 @@ const char* x_label[32] = { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s
 
 void raise_exception(uint32_t cause, uint32_t tval) {
     if (trap_occurred) return;
+
     csrs[CSR_MEPC] = pc;
     csrs[CSR_MCAUSE] = cause;
     csrs[CSR_MTVAL] = tval;
@@ -92,12 +95,12 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
         if (addr == 0x0c200004) {
-            if (uart_ier & 0x2) return 10;
+            if ((uart_ier & 0x2) && (uart_tx_countdown == 0)) return 10;
         }
         return 0;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if ((addr - UART_BASE) == 0) { // RBR (Read Buffer)
+        if ((addr - UART_BASE) == 0) {
             int c = (input_file) ? fgetc(input_file) : EOF;
             if (c == EOF) {
                 static int eof_warned = 0;
@@ -106,7 +109,9 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             }
             return (uint32_t)c;
         }
-        if ((addr - UART_BASE) == 2) return 1; 
+        if ((addr - UART_BASE) == 2) {
+            return (uart_tx_countdown > 0) ? 1 : 2;
+        }
         return 0;
     }
     raise_exception(CAUSE_LOAD_ACCESS, addr);
@@ -125,8 +130,10 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
             putchar((char)value);
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
+            
+            uart_tx_countdown = UART_TX_DELAY;
         }
-        else if (addr == UART_BASE + 1) { // IER (Offset 1)
+        else if (addr == UART_BASE + 1) { 
             uart_ier = value; 
         }
         return;
@@ -268,34 +275,6 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF)); fprintf(output_file, "0x%08x:%-7s %-16s pc=0x%08x+0x%08x,%s=0x%08x\n", current_pc, "jalr", operand_str, val_rs1, imm, x_label[rd], return_address);
             break;
         }
-        case 0x03: { // Loads
-            uint32_t rd = (instruction >> 7) & 0x1F; uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rs1 = (instruction >> 15) & 0x1F; int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20;
-            uint32_t val_rs1 = registers[rs1]; uint32_t address = val_rs1 + imm; uint32_t res = 0; const char* instr_name = "???";
-            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rd], (imm & 0xFFF), x_label[rs1]);
-            switch (funct3) {
-                case 0x0: instr_name = "lb";  { int8_t  b = (int8_t) read_byte_from_memory(address); if(!trap_occurred) res = (int32_t)b; } break;
-                case 0x1: instr_name = "lh";  { int16_t h = (int16_t)read_half_word_from_memory(address); if(!trap_occurred) res = (int32_t)h; } break;
-                case 0x2: instr_name = "lw";  { res = read_word_from_memory(address); } break;
-                case 0x4: instr_name = "lbu"; { uint8_t b = read_byte_from_memory(address); if(!trap_occurred) res = (uint32_t)b; } break;
-                case 0x5: instr_name = "lhu"; { uint16_t h = read_half_word_from_memory(address); if(!trap_occurred) res = (uint32_t)h; } break;
-                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return;
-            }
-            if (!trap_occurred) { if(rd != 0) registers[rd] = res; fprintf(output_file, "0x%08x:%-7s %-16s %s=mem[0x%08x]=0x%08x\n", current_pc, instr_name, operand_str, x_label[rd], address, res); }
-            break;
-        }
-        case 0x23: { // Stores
-            uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t rs2 = (instruction >> 20) & 0x1F;
-            uint32_t imm_11_5 = (instruction >> 25) & 0x7F; uint32_t imm_4_0  = (instruction >> 7) & 0x1F; int32_t imm = (imm_11_5 << 5) | imm_4_0; imm = (int32_t)(imm << 20) >> 20;
-            uint32_t val_rs1 = registers[rs1]; uint32_t val_rs2 = registers[rs2]; uint32_t address = val_rs1 + imm; const char* instr_name = "???";
-            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rs2], (imm & 0xFFF), x_label[rs1]);
-            switch (funct3) {
-                case 0x0: instr_name = "sb"; write_byte_to_memory(address, (uint8_t)val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%02x\n", current_pc, instr_name, operand_str, address, (uint8_t)val_rs2); break;
-                case 0x1: instr_name = "sh"; write_half_word_to_memory(address, (uint16_t)val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%04x\n", current_pc, instr_name, operand_str, address, (uint16_t)val_rs2); break;
-                case 0x2: instr_name = "sw"; write_word_to_memory(address, val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%08x\n", current_pc, instr_name, operand_str, address, val_rs2); break;
-                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return; 
-            }
-            break;
-        }
         case 0x73: { // SYSTEM / CSR
             uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rd = (instruction >> 7) & 0x1F; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t csr_addr = (instruction >> 20) & 0xFFF; uint32_t uimm = rs1; 
             if (funct3 == 0) {
@@ -342,19 +321,11 @@ int main(int argc, char *argv[]) {
 
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
-        if (input_file == NULL) {
-            perror("Erro ao abrir arquivo .in");
-            fclose(hex_file); fclose(output_file);
-            return 1;
-        }
+        if (input_file == NULL) { perror("Erro ao abrir arquivo .in"); fclose(hex_file); fclose(output_file); return 1; }
         printf("Lendo entrada do arquivo: %s\n", argv[3]);
         
         terminal_file = fopen("terminal.out", "w");
-        if (terminal_file == NULL) {
-            perror("Erro ao criar terminal.out");
-            fclose(hex_file); fclose(output_file); fclose(input_file);
-            return 1;
-        }
+        if (terminal_file == NULL) { perror("Erro ao criar terminal.out"); fclose(hex_file); fclose(output_file); fclose(input_file); return 1; }
     } else {
         printf("Modo Sem Entrada: Executando sem dados (EOF imediato).\n");
     }
@@ -410,16 +381,22 @@ int main(int argc, char *argv[]) {
         if (msip & 0x1) csrs[CSR_MIP] |= 0x08;
         else csrs[CSR_MIP] &= ~0x08;
 
-        if (uart_ier & 0x2) csrs[CSR_MIP] |= 0x800;
+        if (uart_tx_countdown > 0) {
+            uart_tx_countdown--;
+            csrs[CSR_MIP] &= ~0x800;
+        } else {
+            if (uart_ier & 0x2) csrs[CSR_MIP] |= 0x800;
+            else csrs[CSR_MIP] &= ~0x800;
+        }
         
         uint32_t mstatus = csrs[CSR_MSTATUS];
         uint32_t mie = csrs[CSR_MIE];
         uint32_t mip = csrs[CSR_MIP];
 
-        if (mstatus & 0x8) {
-            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0); // External
-            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0); // Software
-            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0); // Timer
+        if (mstatus & 0x8) { 
+            if ((mie & 0x800) && (mip & 0x800)) raise_exception(CAUSE_MEI, 0); 
+            else if ((mie & 0x8) && (mip & 0x8)) raise_exception(CAUSE_MSI, 0); 
+            else if ((mie & 0x80) && (mip & 0x80)) raise_exception(CAUSE_MTI, 0); 
         }
         
         registers[0] = 0;
