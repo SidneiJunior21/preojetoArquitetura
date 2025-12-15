@@ -33,7 +33,7 @@
 #define MEM_SIZE    (1024 * 1024)
 
 #define TIMER_DIVIDER 100
-#define UART_TX_DELAY 1000 // Delay para simular envio
+#define UART_TX_DELAY 1000 
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
@@ -100,11 +100,9 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
-        // PLIC Claim
         if (addr == 0x0c200004) {
-            // Só retorna ID se a UART estiver pronta (countdown 0) e houver pendência
-            if ((uart_ier & 0x2) && (uart_tx_countdown == 0) && uart_irq_pending) {
-                uart_irq_pending = 0; // Limpa a pendência ao atender
+            if ((uart_ier & 0x2) && uart_irq_pending) {
+                uart_irq_pending = 0; 
                 return 10;
             }
         }
@@ -121,6 +119,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             return (uint32_t)c;
         }
         if ((addr - UART_BASE) == 2) {
+            // Se countdown > 0, ocupado (1). Se 0, pronto (2).
             return (uart_tx_countdown > 0) ? 1 : 2; 
         }
         return 0;
@@ -138,20 +137,18 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
         if (addr == UART_BASE) { // THR
-            putchar((char)value);
-            if (terminal_file) fputc((char)value, terminal_file);
-            fflush(stdout);
-            
-            // --- CORREÇÃO CRÍTICA DO LOOP INFINITO ---
-            // Só iniciamos um novo delay se a linha estiver livre.
-            // Se o programa escrever rápido demais (busy loop), ignoramos o reset do contador
-            // para permitir que o contador chegue a 0 e dispare a interrupção.
+            // --- CORREÇÃO FINAL: Só processa se a UART estiver LIVRE ---
             if (uart_tx_countdown == 0) {
+                putchar((char)value);
+                if (terminal_file) fputc((char)value, terminal_file);
+                fflush(stdout);
+                
                 uart_tx_countdown = UART_TX_DELAY; 
+                uart_irq_pending = 1;
             }
-            uart_irq_pending = 1; // Marca que há uma interrupção pendente
+            // Se estiver ocupada, ignoramos a escrita para evitar repetição no terminal
         }
-        else if (addr == UART_BASE + 1) { // IER
+        else if (addr == UART_BASE + 1) { 
             uart_ier = value; 
         }
         return;
@@ -345,24 +342,19 @@ int main(int argc, char *argv[]) {
     FILE *hex_file = fopen(argv[1], "r"); if (hex_file == NULL) return 1;
     FILE *output_file = fopen(argv[2], "w"); if (output_file == NULL) { fclose(hex_file); return 1; }
     
-    input_file = NULL;
-    terminal_file = NULL;
+    // Abre o terminal.out sempre, para limpar o ficheiro velho
+    terminal_file = fopen("terminal.out", "w");
+    if (terminal_file == NULL) { perror("Erro ao criar terminal.out"); }
 
+    input_file = NULL;
     if (argc >= 4) {
         input_file = fopen(argv[3], "r");
         if (input_file == NULL) {
             perror("Erro ao abrir arquivo .in");
-            fclose(hex_file); fclose(output_file);
+            fclose(hex_file); fclose(output_file); if(terminal_file) fclose(terminal_file);
             return 1;
         }
         printf("Lendo entrada do arquivo: %s\n", argv[3]);
-        
-        terminal_file = fopen("terminal.out", "w");
-        if (terminal_file == NULL) {
-            perror("Erro ao criar terminal.out");
-            fclose(hex_file); fclose(output_file); fclose(input_file);
-            return 1;
-        }
     } else {
         printf("Modo Sem Entrada: Executando sem dados (EOF imediato).\n");
     }
@@ -385,7 +377,7 @@ int main(int argc, char *argv[]) {
         }
     }
     fclose(hex_file);
-    printf("--- SIMULADOR FINAL V5 (Correção do Loop) ---\n");
+    printf("--- SIMULADOR FINAL V7 (Correção do Output Repetido) ---\n");
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
     int timer_divider_counter = 0;
@@ -411,7 +403,6 @@ int main(int argc, char *argv[]) {
             break;
         }
         
-        // --- Atualizações de Tempo e Interrupção ---
         timer_divider_counter++;
         if (timer_divider_counter >= TIMER_DIVIDER) {
             mtime++;
@@ -424,17 +415,13 @@ int main(int argc, char *argv[]) {
         if (msip & 0x1) csrs[CSR_MIP] |= 0x08;
         else csrs[CSR_MIP] &= ~0x08;
 
-        // Lógica de Delay e Interrupção
         if (uart_tx_countdown > 0) {
             uart_tx_countdown--;
-            // Enquanto conta, não interrompe
         } else {
-            // Se countdown chegou a 0 e temos interrupção pendente
             if ((uart_ier & 0x2) && uart_irq_pending) csrs[CSR_MIP] |= 0x800;
             else csrs[CSR_MIP] &= ~0x800;
         }
         
-        // --- Despacho ---
         uint32_t mstatus = csrs[CSR_MSTATUS];
         uint32_t mie = csrs[CSR_MIE];
         uint32_t mip = csrs[CSR_MIP];
