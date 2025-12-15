@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+// --- Definições de CSRs ---
 #define CSR_MSTATUS 0x300
 #define CSR_MIE     0x304
 #define CSR_MTVEC   0x305
@@ -11,6 +12,7 @@
 #define CSR_MTVAL   0x343
 #define CSR_MIP     0x344
 
+// --- Códigos de Exceção e Interrupção ---
 #define CAUSE_INSN_ACCESS      0x1
 #define CAUSE_ILLEGAL_INSTR    0x2
 #define CAUSE_LOAD_ACCESS      0x5
@@ -20,6 +22,7 @@
 #define CAUSE_MTI              0x80000007
 #define CAUSE_MEI              0x8000000b
 
+// --- Mapeamento de Memória ---
 #define CLINT_BASE  0x02000000
 #define CLINT_SIZE  0x00010000
 #define PLIC_BASE   0x0c000000
@@ -30,7 +33,8 @@
 #define MEM_SIZE    (1024 * 1024)
 
 #define TIMER_DIVIDER 100
-#define UART_TX_DELAY 1 
+// VOLTAMOS AO DELAY 1000: Garante que o processador tem tempo de processar a interrupção
+#define UART_TX_DELAY 1000 
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
@@ -41,6 +45,7 @@ uint64_t mtime = 0;
 uint64_t mtimecmp = -1;
 uint32_t msip = 0;
 
+// Estado da UART e PLIC
 uint32_t uart_ier = 0; 
 int uart_tx_countdown = 0; 
 int uart_irq_pending = 0; 
@@ -97,8 +102,9 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
         if (addr == 0x0c200004) {
-            if ((uart_ier & 0x2) && uart_irq_pending) {
-                uart_irq_pending = 0;
+            // Só confirma interrupção se UART estiver pronta (countdown 0) e houver pendência
+            if ((uart_ier & 0x2) && (uart_tx_countdown == 0) && uart_irq_pending) {
+                uart_irq_pending = 0; // Limpa a pendência
                 return 10;
             }
         }
@@ -115,6 +121,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             return (uint32_t)c;
         }
         if ((addr - UART_BASE) == 2) {
+            // Se countdown > 0, UART ocupada. Se countdown == 0, pronta (THRE)
             return (uart_tx_countdown > 0) ? 1 : 2; 
         }
         return 0;
@@ -136,10 +143,10 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
             
-            uart_tx_countdown = UART_TX_DELAY; 
-            uart_irq_pending = 1;
+            uart_tx_countdown = UART_TX_DELAY; // Inicia delay
+            uart_irq_pending = 1; // Marca interrupção como pendente
         }
-        else if (addr == UART_BASE + 1) { // IER
+        else if (addr == UART_BASE + 1) { 
             uart_ier = value; 
         }
         return;
@@ -323,7 +330,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
                 if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(output_file, "0x%08x:ecall\n", current_pc); }
                 else if (csr_addr == 1) { 
                     fprintf(output_file, "0x%08x:ebreak\n", current_pc);
-                    sim_running = 0;
+                    sim_running = 0; // Sinaliza fim!
                 }
                 else if (csr_addr == 0x302) { 
                     pc = csrs[CSR_MEPC]; 
@@ -401,11 +408,12 @@ int main(int argc, char *argv[]) {
         }
     }
     fclose(hex_file);
+    printf("--- SIMULADOR FINAL V4 (Delay 1000) ---\n");
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
     int timer_divider_counter = 0;
     
-    while (sim_running) {
+    while (sim_running) { // Loop controlado por sim_running
         if (pc == 0) {
             printf("\nSimulação terminada (Retorno a 0x0).\n");
             break; 
@@ -417,15 +425,18 @@ int main(int argc, char *argv[]) {
         uint32_t instruction = memory[idx] | (memory[idx+1] << 8) | (memory[idx+2] << 16) | (memory[idx+3] << 24);
         uint32_t pc_atual = pc;
 
+        // Se encontrar instrução 0 (nula), assume fim de programa (segurança)
         if (instruction == 0) { printf("Simulação terminada (instrução nula). PC=0x%x\n", pc_atual); break; }
         
         execute_instruction(instruction, pc_atual, output_file);
         
+        // Verifica se execute_instruction sinalizou fim (ebreak)
         if (!sim_running) {
             printf("Simulação terminada (ebreak).\n");
             break;
         }
         
+        // --- Atualizações de Tempo e Interrupção ---
         timer_divider_counter++;
         if (timer_divider_counter >= TIMER_DIVIDER) {
             mtime++;
@@ -438,14 +449,17 @@ int main(int argc, char *argv[]) {
         if (msip & 0x1) csrs[CSR_MIP] |= 0x08;
         else csrs[CSR_MIP] &= ~0x08;
 
+        // Lógica de Delay e Interrupção (COM LATCH)
         if (uart_tx_countdown > 0) {
             uart_tx_countdown--;
-            csrs[CSR_MIP] &= ~0x800;
+            // Enquanto conta o delay, NÃO levanta a interrupção (busy)
         } else {
-            if (uart_ier & 0x2) csrs[CSR_MIP] |= 0x800;
+            // Se o contador chegou a zero E interrupção habilitada E temos evento pendente
+            if ((uart_ier & 0x2) && uart_irq_pending) csrs[CSR_MIP] |= 0x800;
             else csrs[CSR_MIP] &= ~0x800;
         }
         
+        // --- Despacho ---
         uint32_t mstatus = csrs[CSR_MSTATUS];
         uint32_t mie = csrs[CSR_MIE];
         uint32_t mip = csrs[CSR_MIP];
