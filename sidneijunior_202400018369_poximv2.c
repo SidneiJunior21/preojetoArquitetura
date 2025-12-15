@@ -33,8 +33,7 @@
 #define MEM_SIZE    (1024 * 1024)
 
 #define TIMER_DIVIDER 100
-// VOLTAMOS AO DELAY 1000: Garante que o processador tem tempo de processar a interrupção
-#define UART_TX_DELAY 1000 
+#define UART_TX_DELAY 1000 // Delay para simular envio
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
@@ -101,10 +100,11 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= PLIC_BASE && addr < (PLIC_BASE + PLIC_SIZE)) {
+        // PLIC Claim
         if (addr == 0x0c200004) {
-            // Só confirma interrupção se UART estiver pronta (countdown 0) e houver pendência
+            // Só retorna ID se a UART estiver pronta (countdown 0) e houver pendência
             if ((uart_ier & 0x2) && (uart_tx_countdown == 0) && uart_irq_pending) {
-                uart_irq_pending = 0; // Limpa a pendência
+                uart_irq_pending = 0; // Limpa a pendência ao atender
                 return 10;
             }
         }
@@ -121,7 +121,6 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             return (uint32_t)c;
         }
         if ((addr - UART_BASE) == 2) {
-            // Se countdown > 0, UART ocupada. Se countdown == 0, pronta (THRE)
             return (uart_tx_countdown > 0) ? 1 : 2; 
         }
         return 0;
@@ -143,10 +142,16 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
             
-            uart_tx_countdown = UART_TX_DELAY; // Inicia delay
-            uart_irq_pending = 1; // Marca interrupção como pendente
+            // --- CORREÇÃO CRÍTICA DO LOOP INFINITO ---
+            // Só iniciamos um novo delay se a linha estiver livre.
+            // Se o programa escrever rápido demais (busy loop), ignoramos o reset do contador
+            // para permitir que o contador chegue a 0 e dispare a interrupção.
+            if (uart_tx_countdown == 0) {
+                uart_tx_countdown = UART_TX_DELAY; 
+            }
+            uart_irq_pending = 1; // Marca que há uma interrupção pendente
         }
-        else if (addr == UART_BASE + 1) { 
+        else if (addr == UART_BASE + 1) { // IER
             uart_ier = value; 
         }
         return;
@@ -296,34 +301,6 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF)); fprintf(output_file, "0x%08x:%-7s %-16s pc=0x%08x+0x%08x,%s=0x%08x\n", current_pc, "jalr", operand_str, val_rs1, imm, x_label[rd], return_address);
             break;
         }
-        case 0x03: { // Loads
-            uint32_t rd = (instruction >> 7) & 0x1F; uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rs1 = (instruction >> 15) & 0x1F; int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20;
-            uint32_t val_rs1 = registers[rs1]; uint32_t address = val_rs1 + imm; uint32_t res = 0; const char* instr_name = "???";
-            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rd], (imm & 0xFFF), x_label[rs1]);
-            switch (funct3) {
-                case 0x0: instr_name = "lb";  { int8_t  b = (int8_t) read_byte_from_memory(address); if(!trap_occurred) res = (int32_t)b; } break;
-                case 0x1: instr_name = "lh";  { int16_t h = (int16_t)read_half_word_from_memory(address); if(!trap_occurred) res = (int32_t)h; } break;
-                case 0x2: instr_name = "lw";  { res = read_word_from_memory(address); } break;
-                case 0x4: instr_name = "lbu"; { uint8_t b = read_byte_from_memory(address); if(!trap_occurred) res = (uint32_t)b; } break;
-                case 0x5: instr_name = "lhu"; { uint16_t h = read_half_word_from_memory(address); if(!trap_occurred) res = (uint32_t)h; } break;
-                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return;
-            }
-            if (!trap_occurred) { if(rd != 0) registers[rd] = res; fprintf(output_file, "0x%08x:%-7s %-16s %s=mem[0x%08x]=0x%08x\n", current_pc, instr_name, operand_str, x_label[rd], address, res); }
-            break;
-        }
-        case 0x23: { // Stores
-            uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t rs2 = (instruction >> 20) & 0x1F;
-            uint32_t imm_11_5 = (instruction >> 25) & 0x7F; uint32_t imm_4_0  = (instruction >> 7) & 0x1F; int32_t imm = (imm_11_5 << 5) | imm_4_0; imm = (int32_t)(imm << 20) >> 20;
-            uint32_t val_rs1 = registers[rs1]; uint32_t val_rs2 = registers[rs2]; uint32_t address = val_rs1 + imm; const char* instr_name = "???";
-            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rs2], (imm & 0xFFF), x_label[rs1]);
-            switch (funct3) {
-                case 0x0: instr_name = "sb"; write_byte_to_memory(address, (uint8_t)val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%02x\n", current_pc, instr_name, operand_str, address, (uint8_t)val_rs2); break;
-                case 0x1: instr_name = "sh"; write_half_word_to_memory(address, (uint16_t)val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%04x\n", current_pc, instr_name, operand_str, address, (uint16_t)val_rs2); break;
-                case 0x2: instr_name = "sw"; write_word_to_memory(address, val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%08x\n", current_pc, instr_name, operand_str, address, val_rs2); break;
-                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return; 
-            }
-            break;
-        }
         case 0x73: { // SYSTEM / CSR
             uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rd = (instruction >> 7) & 0x1F; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t csr_addr = (instruction >> 20) & 0xFFF; uint32_t uimm = rs1; 
             if (funct3 == 0) {
@@ -408,12 +385,12 @@ int main(int argc, char *argv[]) {
         }
     }
     fclose(hex_file);
-    printf("--- SIMULADOR FINAL V4 (Delay 1000) ---\n");
+    printf("--- SIMULADOR FINAL V5 (Correção do Loop) ---\n");
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
     int timer_divider_counter = 0;
     
-    while (sim_running) { // Loop controlado por sim_running
+    while (sim_running) { 
         if (pc == 0) {
             printf("\nSimulação terminada (Retorno a 0x0).\n");
             break; 
@@ -425,12 +402,10 @@ int main(int argc, char *argv[]) {
         uint32_t instruction = memory[idx] | (memory[idx+1] << 8) | (memory[idx+2] << 16) | (memory[idx+3] << 24);
         uint32_t pc_atual = pc;
 
-        // Se encontrar instrução 0 (nula), assume fim de programa (segurança)
         if (instruction == 0) { printf("Simulação terminada (instrução nula). PC=0x%x\n", pc_atual); break; }
         
         execute_instruction(instruction, pc_atual, output_file);
         
-        // Verifica se execute_instruction sinalizou fim (ebreak)
         if (!sim_running) {
             printf("Simulação terminada (ebreak).\n");
             break;
@@ -449,12 +424,12 @@ int main(int argc, char *argv[]) {
         if (msip & 0x1) csrs[CSR_MIP] |= 0x08;
         else csrs[CSR_MIP] &= ~0x08;
 
-        // Lógica de Delay e Interrupção (COM LATCH)
+        // Lógica de Delay e Interrupção
         if (uart_tx_countdown > 0) {
             uart_tx_countdown--;
-            // Enquanto conta o delay, NÃO levanta a interrupção (busy)
+            // Enquanto conta, não interrompe
         } else {
-            // Se o contador chegou a zero E interrupção habilitada E temos evento pendente
+            // Se countdown chegou a 0 e temos interrupção pendente
             if ((uart_ier & 0x2) && uart_irq_pending) csrs[CSR_MIP] |= 0x800;
             else csrs[CSR_MIP] &= ~0x800;
         }
