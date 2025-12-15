@@ -30,7 +30,7 @@
 #define MEM_SIZE    (1024 * 1024)
 
 #define TIMER_DIVIDER 100
-#define UART_TX_DELAY 1000
+#define UART_TX_DELAY 1000 
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
@@ -42,9 +42,10 @@ uint64_t mtimecmp = -1;
 uint32_t msip = 0;
 
 uint32_t uart_ier = 0; 
-int uart_tx_countdown = 0;
+int uart_tx_countdown = 0; 
 
 int trap_occurred = 0;
+int sim_running = 1; 
 
 FILE *terminal_file = NULL;
 FILE *input_file = NULL;
@@ -100,7 +101,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
         return 0;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if ((addr - UART_BASE) == 0) { // RBR
+        if ((addr - UART_BASE) == 0) {
             int c = (input_file) ? fgetc(input_file) : EOF;
             if (c == EOF) {
                 static int eof_warned = 0;
@@ -110,7 +111,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             return (uint32_t)c;
         }
         if ((addr - UART_BASE) == 2) {
-            return (uart_tx_countdown > 0) ? 1 : 2;
+            return (uart_tx_countdown > 0) ? 1 : 2; 
         }
         return 0;
     }
@@ -126,13 +127,13 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
         return;
     }
     else if (addr >= UART_BASE && addr < (UART_BASE + UART_SIZE)) {
-        if (addr == UART_BASE) { // THR
+        if (addr == UART_BASE) {
             putchar((char)value);
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
-            uart_tx_countdown = UART_TX_DELAY;
+            uart_tx_countdown = UART_TX_DELAY; 
         }
-        else if (addr == UART_BASE + 1) { // IER
+        else if (addr == UART_BASE + 1) { 
             uart_ier = value; 
         }
         return;
@@ -314,7 +315,10 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rd = (instruction >> 7) & 0x1F; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t csr_addr = (instruction >> 20) & 0xFFF; uint32_t uimm = rs1; 
             if (funct3 == 0) {
                 if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(output_file, "0x%08x:ecall\n", current_pc); }
-                else if (csr_addr == 1) { fprintf(output_file, "0x%08x:ebreak\n", current_pc); }
+                else if (csr_addr == 1) { 
+                    fprintf(output_file, "0x%08x:ebreak\n", current_pc);
+                    sim_running = 0; 
+                }
                 else if (csr_addr == 0x302) { 
                     pc = csrs[CSR_MEPC]; 
                     pc_updated = 1; 
@@ -395,7 +399,7 @@ int main(int argc, char *argv[]) {
     
     int timer_divider_counter = 0;
     
-    while (1) {
+    while (sim_running) {
         if (pc == 0) {
             printf("\n[Simulador] Erro Fatal: O PC foi para 0x0.\n");
             break; 
@@ -407,10 +411,14 @@ int main(int argc, char *argv[]) {
         uint32_t instruction = memory[idx] | (memory[idx+1] << 8) | (memory[idx+2] << 16) | (memory[idx+3] << 24);
         uint32_t pc_atual = pc;
 
-        if (instruction == 0x00100073) { fprintf(output_file, "0x%08x:ebreak\n", pc_atual); printf("Simulação terminada (ebreak).\n"); break; }
         if (instruction == 0) { printf("Simulação terminada (instrução nula). PC=0x%x\n", pc_atual); break; }
         
         execute_instruction(instruction, pc_atual, output_file);
+        
+        if (!sim_running) {
+            printf("Simulação terminada (ebreak).\n");
+            break;
+        }
         
         timer_divider_counter++;
         if (timer_divider_counter >= TIMER_DIVIDER) {
