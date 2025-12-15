@@ -137,6 +137,7 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
             fflush(stdout);
             
             uart_tx_countdown = UART_TX_DELAY; 
+            uart_irq_pending = 1;
         }
         else if (addr == UART_BASE + 1) { // IER
             uart_ier = value; 
