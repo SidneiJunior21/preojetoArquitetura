@@ -30,7 +30,7 @@
 #define MEM_SIZE    (1024 * 1024)
 
 #define TIMER_DIVIDER 100
-#define UART_TX_DELAY 1000 
+#define UART_TX_DELAY 1 
 
 uint32_t registers[32];
 uint32_t pc = 0x80000000;
@@ -115,7 +115,7 @@ uint32_t bus_load(uint32_t addr, int size_bytes) {
             return (uint32_t)c;
         }
         if ((addr - UART_BASE) == 2) {
-            return (uart_irq_pending) ? 2 : 1; 
+            return (uart_tx_countdown > 0) ? 1 : 2; 
         }
         return 0;
     }
@@ -440,8 +440,9 @@ int main(int argc, char *argv[]) {
 
         if (uart_tx_countdown > 0) {
             uart_tx_countdown--;
+            csrs[CSR_MIP] &= ~0x800;
         } else {
-            if ((uart_ier & 0x2) && uart_irq_pending) csrs[CSR_MIP] |= 0x800;
+            if (uart_ier & 0x2) csrs[CSR_MIP] |= 0x800;
             else csrs[CSR_MIP] &= ~0x800;
         }
         
