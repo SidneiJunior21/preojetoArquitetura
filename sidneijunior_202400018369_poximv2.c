@@ -43,8 +43,8 @@ uint32_t msip = 0;
 
 uint32_t uart_ier = 0; 
 int uart_tx_countdown = 0; 
-
 int trap_occurred = 0;
+int sim_running = 1;
 
 FILE *terminal_file = NULL;
 FILE *input_file = NULL;
@@ -156,15 +156,14 @@ void write_word_to_memory(uint32_t address, uint32_t value) { bus_store(address,
 void write_half_word_to_memory(uint32_t address, uint16_t value) { bus_store(address, value, 2); }
 void write_byte_to_memory(uint32_t address, uint8_t value) { bus_store(address, value, 1); }
 
-int execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_file) {
+void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_file) {
     uint32_t opcode = instruction & 0x7F;
     int pc_updated = 0;
-    int stop_simulation = 0;
     trap_occurred = 0;
     char operand_str[40];
 
     switch (opcode) {
-        case 0x13: { // I-Type (addi, etc)
+        case 0x13: { // I-Type
             uint32_t rd = (instruction >> 7) & 0x1F;
             uint32_t funct3 = (instruction >> 12) & 0x7;
             uint32_t rs1 = (instruction >> 15) & 0x1F;
@@ -253,7 +252,7 @@ int execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_
                 case 0x5: instr_name = "bge"; op_symbol = ">="; if (val_rs1 >= val_rs2) condition_met = 1; break;
                 case 0x6: instr_name = "bltu"; op_symbol = "<";  if (u_val_rs1 < u_val_rs2) condition_met = 1; is_unsigned = 1; break;
                 case 0x7: instr_name = "bgeu"; op_symbol = ">="; if (u_val_rs1 >= u_val_rs2) condition_met = 1; is_unsigned = 1; break;
-                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return 0;
+                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return;
             }
             if (is_unsigned) { fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x   (0x%08x%s0x%08x)=%d->pc=0x%08x\n", current_pc, instr_name, x_label[rs1], x_label[rs2], (offset >> 1) & 0xFFF, u_val_rs1, op_symbol, u_val_rs2, condition_met, (condition_met ? (current_pc + offset) : (current_pc + 4))); } 
             else { fprintf(output_file, "0x%08x:%-7s %s,%s,0x%03x   (0x%08x%s0x%08x)=%d->pc=0x%08x\n", current_pc, instr_name, x_label[rs1], x_label[rs2], (offset >> 1) & 0xFFF, val_rs1, op_symbol, val_rs2, condition_met, (condition_met ? (current_pc + offset) : (current_pc + 4))); }
@@ -283,41 +282,13 @@ int execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_
             sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF)); fprintf(output_file, "0x%08x:%-7s %-16s pc=0x%08x+0x%08x,%s=0x%08x\n", current_pc, "jalr", operand_str, val_rs1, imm, x_label[rd], return_address);
             break;
         }
-        case 0x03: { // Loads
-            uint32_t rd = (instruction >> 7) & 0x1F; uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rs1 = (instruction >> 15) & 0x1F; int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20;
-            uint32_t val_rs1 = registers[rs1]; uint32_t address = val_rs1 + imm; uint32_t res = 0; const char* instr_name = "???";
-            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rd], (imm & 0xFFF), x_label[rs1]);
-            switch (funct3) {
-                case 0x0: instr_name = "lb";  { int8_t  b = (int8_t) read_byte_from_memory(address); if(!trap_occurred) res = (int32_t)b; } break;
-                case 0x1: instr_name = "lh";  { int16_t h = (int16_t)read_half_word_from_memory(address); if(!trap_occurred) res = (int32_t)h; } break;
-                case 0x2: instr_name = "lw";  { res = read_word_from_memory(address); } break;
-                case 0x4: instr_name = "lbu"; { uint8_t b = read_byte_from_memory(address); if(!trap_occurred) res = (uint32_t)b; } break;
-                case 0x5: instr_name = "lhu"; { uint16_t h = read_half_word_from_memory(address); if(!trap_occurred) res = (uint32_t)h; } break;
-                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return 0;
-            }
-            if (!trap_occurred) { if(rd != 0) registers[rd] = res; fprintf(output_file, "0x%08x:%-7s %-16s %s=mem[0x%08x]=0x%08x\n", current_pc, instr_name, operand_str, x_label[rd], address, res); }
-            break;
-        }
-        case 0x23: { // Stores
-            uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t rs2 = (instruction >> 20) & 0x1F;
-            uint32_t imm_11_5 = (instruction >> 25) & 0x7F; uint32_t imm_4_0  = (instruction >> 7) & 0x1F; int32_t imm = (imm_11_5 << 5) | imm_4_0; imm = (int32_t)(imm << 20) >> 20;
-            uint32_t val_rs1 = registers[rs1]; uint32_t val_rs2 = registers[rs2]; uint32_t address = val_rs1 + imm; const char* instr_name = "???";
-            sprintf(operand_str, "%s,0x%03x(%s)", x_label[rs2], (imm & 0xFFF), x_label[rs1]);
-            switch (funct3) {
-                case 0x0: instr_name = "sb"; write_byte_to_memory(address, (uint8_t)val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%02x\n", current_pc, instr_name, operand_str, address, (uint8_t)val_rs2); break;
-                case 0x1: instr_name = "sh"; write_half_word_to_memory(address, (uint16_t)val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%04x\n", current_pc, instr_name, operand_str, address, (uint16_t)val_rs2); break;
-                case 0x2: instr_name = "sw"; write_word_to_memory(address, val_rs2); if(!trap_occurred) fprintf(output_file, "0x%08x:%-7s %-16s mem[0x%08x]=0x%08x\n", current_pc, instr_name, operand_str, address, val_rs2); break;
-                default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return 0;
-            }
-            break;
-        }
         case 0x73: { // SYSTEM / CSR
             uint32_t funct3 = (instruction >> 12) & 0x7; uint32_t rd = (instruction >> 7) & 0x1F; uint32_t rs1 = (instruction >> 15) & 0x1F; uint32_t csr_addr = (instruction >> 20) & 0xFFF; uint32_t uimm = rs1; 
             if (funct3 == 0) {
                 if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(output_file, "0x%08x:ecall\n", current_pc); }
                 else if (csr_addr == 1) { 
                     fprintf(output_file, "0x%08x:ebreak\n", current_pc);
-                    stop_simulation = 1;
+                    sim_running = 0;
                 }
                 else if (csr_addr == 0x302) { 
                     pc = csrs[CSR_MEPC]; 
@@ -339,7 +310,7 @@ int execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_
                     case 0x5: new_val = uimm; sprintf(operand_str, "%s,0x%x,0x%03x", x_label[rd], uimm, csr_addr); fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x\n", current_pc, "csrrwi", operand_str, x_label[rd], csr_val); break;
                     case 0x6: new_val = csr_val | uimm; sprintf(operand_str, "%s,0x%x,0x%03x", x_label[rd], uimm, csr_addr); fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x\n", current_pc, "csrrsi", operand_str, x_label[rd], csr_val); break;
                     case 0x7: new_val = csr_val & ~uimm; sprintf(operand_str, "%s,0x%x,0x%03x", x_label[rd], uimm, csr_addr); fprintf(output_file, "0x%08x:%-7s %-16s %s=0x%08x\n", current_pc, "csrrci", operand_str, x_label[rd], csr_val); break;
-                    default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return 0;
+                    default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); return;
                 }
                 csrs[csr_addr] = new_val; if (rd != 0) registers[rd] = csr_val;
             }
@@ -348,8 +319,6 @@ int execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output_
         default: raise_exception(CAUSE_ILLEGAL_INSTR, instruction); fprintf(output_file, "Erro: Opcode 0x%x desconhecido em 0x%08x (Trap)\n", opcode, current_pc); break;
     }
     if (!pc_updated && !trap_occurred) { pc += 4; }
-    
-    return stop_simulation;
 }
 
 int main(int argc, char *argv[]) {
@@ -401,9 +370,9 @@ int main(int argc, char *argv[]) {
     
     int timer_divider_counter = 0;
     
-    while (1) {
+    while (sim_running) {
         if (pc == 0) {
-            printf("\n[Simulador] Erro Fatal: O PC foi para 0x0.\n");
+            printf("\nSimulação terminada (Retorno a 0x0).\n");
             break; 
         }
         if (pc % 4 != 0) { raise_exception(CAUSE_INSN_ACCESS, pc); continue; } 
@@ -414,10 +383,10 @@ int main(int argc, char *argv[]) {
         uint32_t pc_atual = pc;
 
         if (instruction == 0) { printf("Simulação terminada (instrução nula). PC=0x%x\n", pc_atual); break; }
-        if (instruction == 0x00100073) { fprintf(output_file, "0x%08x:ebreak\n", pc_atual); printf("Simulação terminada (ebreak).\n"); break; }
         
-        int stop = execute_instruction(instruction, pc_atual, output_file);
-        if (stop) {
+        execute_instruction(instruction, pc_atual, output_file);
+        
+        if (!sim_running) {
             printf("Simulação terminada (ebreak).\n");
             break;
         }
