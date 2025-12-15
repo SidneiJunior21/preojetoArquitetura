@@ -130,7 +130,7 @@ void bus_store(uint32_t addr, uint32_t value, int size_bytes) {
             putchar((char)value);
             if (terminal_file) fputc((char)value, terminal_file);
             fflush(stdout);
-            uart_tx_countdown = UART_TX_DELAY; // Inicia delay
+            uart_tx_countdown = UART_TX_DELAY;
         }
         else if (addr == UART_BASE + 1) { // IER
             uart_ier = value; 
@@ -231,7 +231,11 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
             uint32_t rd = (instruction >> 7) & 0x1F; uint32_t imm_20 = (instruction >> 31) & 1; uint32_t imm_10_1 = (instruction >> 21) & 0x3FF; uint32_t imm_11 = (instruction >> 20) & 1; uint32_t imm_19_12 = (instruction >> 12) & 0xFF;
             int32_t offset = (imm_20 << 20) | (imm_19_12 << 12) | (imm_11 << 11) | (imm_10_1 << 1); offset = (int32_t)(offset << 11) >> 11;
             uint32_t return_address = current_pc + 4; uint32_t target_address = current_pc + offset; 
-            if (rd != 0) registers[rd] = return_address; pc = target_address; pc_updated = 1;  
+            if (rd != 0) {
+                registers[rd] = return_address;
+            }
+            pc = target_address; 
+            pc_updated = 1;  
             sprintf(operand_str, "%s,0x%05x", x_label[rd], (offset >> 1) & 0xFFFFF); fprintf(output_file, "0x%08x:%-7s %-16s pc=0x%08x,%s=0x%08x\n", current_pc, "jal", operand_str, target_address, x_label[rd], return_address);
             break;
         }
@@ -270,7 +274,11 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *output
         case 0x67: { // jalr
             uint32_t rd = (instruction >> 7) & 0x1F; uint32_t rs1 = (instruction >> 15) & 0x1F; int32_t imm = (int32_t)(instruction & 0xFFF00000) >> 20; 
             uint32_t val_rs1 = registers[rs1]; uint32_t return_address = current_pc + 4; uint32_t target_address = (val_rs1 + imm) & ~1;
-            if (rd != 0) registers[rd] = return_address; pc = target_address; pc_updated = 1;
+            if (rd != 0) {
+                registers[rd] = return_address;
+            }
+            pc = target_address; 
+            pc_updated = 1;
             sprintf(operand_str, "%s,%s,0x%03x", x_label[rd], x_label[rs1], (imm & 0xFFF)); fprintf(output_file, "0x%08x:%-7s %-16s pc=0x%08x+0x%08x,%s=0x%08x\n", current_pc, "jalr", operand_str, val_rs1, imm, x_label[rd], return_address);
             break;
         }
