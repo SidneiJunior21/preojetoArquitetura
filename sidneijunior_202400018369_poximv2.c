@@ -52,7 +52,7 @@ int uart_irq_pending = 0;
 int trap_occurred = 0;
 int sim_running = 1;
 
-// Arquivos (Globais para acesso nas exceções)
+// Arquivos Globais
 FILE *output_file = NULL;
 FILE *terminal_file = NULL;
 FILE *input_file = NULL;
@@ -62,7 +62,7 @@ const char* x_label[32] = { "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s
 void raise_exception(uint32_t cause, uint32_t tval) {
     if (trap_occurred) return;
 
-    // --- CORREÇÃO FINAL: Regista a interrupção no arquivo de saída ---
+    // Log para igualar o output ideal
     if (output_file) {
         if (cause & 0x80000000) {
              fprintf(output_file, ">interrupt:external                   cause=0x%08x,epc=0x%08x,tval=0x%08x\n", cause, pc, tval);
@@ -178,7 +178,7 @@ void write_word_to_memory(uint32_t address, uint32_t value) { bus_store(address,
 void write_half_word_to_memory(uint32_t address, uint16_t value) { bus_store(address, value, 2); }
 void write_byte_to_memory(uint32_t address, uint8_t value) { bus_store(address, value, 1); }
 
-void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *out_file) { // Nome alterado para não confundir com global
+void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *out_file) {
     uint32_t opcode = instruction & 0x7F;
     int pc_updated = 0;
     trap_occurred = 0;
@@ -338,7 +338,7 @@ void execute_instruction(uint32_t instruction, uint32_t current_pc, FILE *out_fi
                 if (csr_addr == 0) { raise_exception(CAUSE_ECALL_MMODE, 0); fprintf(out_file, "0x%08x:ecall\n", current_pc); }
                 else if (csr_addr == 1) { 
                     fprintf(out_file, "0x%08x:ebreak\n", current_pc);
-                    sim_running = 0; // Sinaliza fim!
+                    sim_running = 0; 
                 }
                 else if (csr_addr == 0x302) { 
                     pc = csrs[CSR_MEPC]; 
@@ -375,7 +375,6 @@ int main(int argc, char *argv[]) {
     if (argc < 3) { fprintf(stderr, "Uso: %s <arquivo.hex> <arquivo.out> [arquivo.in]\n", argv[0]); return 1; }
     FILE *hex_file = fopen(argv[1], "r"); if (hex_file == NULL) return 1;
     
-    // CORREÇÃO: Inicializar a variável global output_file
     output_file = fopen(argv[2], "w"); if (output_file == NULL) { fclose(hex_file); return 1; }
     
     terminal_file = fopen("terminal.out", "w");
@@ -412,7 +411,7 @@ int main(int argc, char *argv[]) {
         }
     }
     fclose(hex_file);
-    printf("--- SIMULADOR FINAL V10 (Visual Fix) ---\n");
+    printf("--- SIMULADOR FINAL V10 (Confirmado) ---\n");
     printf("Programa '%s' carregado. Iniciando simulação, saída em %s\n", argv[1], argv[2]);
     
     int timer_divider_counter = 0;
